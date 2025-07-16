@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1058691496583",
+    "project_id": "trt-smd-inventory",
+    "storage_bucket": "trt-smd-inventory.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058691496583:android:7043f768c099bb83f59622",
+        "android_client_info": {
+          "package_name": "com.example.smd_inv"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDuv3S99RYmFEW8AinzT4Wd3tmVJn1JobM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
