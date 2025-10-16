@@ -58,7 +58,7 @@ class _CollectionTableState extends State<CollectionTable> {
   DataRow _buildRow(BuildContext context, Doc doc) {
     final m = doc.data();
 
-    DataCell _roText(String field, {bool capitalize = false}) {
+    DataCell roText(String field, {bool capitalize = false}) {
       final text = (m[field]?.toString() ?? '');
       return DataCell(
         SizedBox(
@@ -77,7 +77,7 @@ class _CollectionTableState extends State<CollectionTable> {
       );
     }
 
-    DataCell _editableText(String field, {bool capitalize = false}) {
+    DataCell editableText(String field, {bool capitalize = false}) {
       final key = _keyFor(doc.id, field);
       final text = (m[field]?.toString() ?? '');
       final cell = EditableCell(
@@ -89,7 +89,7 @@ class _CollectionTableState extends State<CollectionTable> {
       return DataCell(cell, onDoubleTap: () => key.currentState?.beginEdit());
     }
 
-    DataCell _editableInt(String field) {
+    DataCell editableInt(String field) {
       final key = _keyFor(doc.id, field);
       final text = (m[field]?.toString() ?? '');
       final cell = EditableCell(
@@ -104,7 +104,7 @@ class _CollectionTableState extends State<CollectionTable> {
       return DataCell(cell, onDoubleTap: () => key.currentState?.beginEdit());
     }
 
-    DataCell _editableDec(String field) {
+    DataCell editableDec(String field) {
       final key = _keyFor(doc.id, field);
       final text = (m[field]?.toString() ?? '');
       final cell = EditableCell(
@@ -124,14 +124,14 @@ class _CollectionTableState extends State<CollectionTable> {
           switch (col.kind) {
             case CellKind.text:
               return col.editable
-                  ? _editableText(col.field, capitalize: col.capitalize)
-                  : _roText(col.field, capitalize: col.capitalize);
+                  ? editableText(col.field, capitalize: col.capitalize)
+                  : roText(col.field, capitalize: col.capitalize);
             case CellKind.integer:
-              return col.editable ? _editableInt(col.field) : _roText(col.field);
+              return col.editable ? editableInt(col.field) : roText(col.field);
             case CellKind.decimal:
-              return col.editable ? _editableDec(col.field) : _roText(col.field);
+              return col.editable ? editableDec(col.field) : roText(col.field);
             case CellKind.url:
-              return col.editable ? _editableText(col.field) : _roText(col.field);
+              return col.editable ? editableText(col.field) : roText(col.field);
           }
         }).toList();
 

@@ -4,9 +4,9 @@ import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:smd_inv/widgets/collection_datagrid.dart';
 
 import '../models/columns.dart';
-import '../widgets/collection_table.dart';
 
 class FullList extends StatefulWidget {
   const FullList({super.key});
@@ -151,34 +151,27 @@ class _FullListState extends State<FullList> with SingleTickerProviderStateMixin
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Inventory Viewer'),
-          bottom: TabBar(
-            controller: _tabController,
-            tabs: const [Tab(text: 'Components'), Tab(text: 'ICs'), Tab(text: 'Connectors')],
-          ),
-          actions: [IconButton(icon: const Icon(Icons.upload_file), onPressed: _uploadCSV, tooltip: 'Import CSV')],
+        appBar: TabBar(
+          controller: _tabController,
+          tabs: const [Tab(text: 'Components'), Tab(text: 'ICs'), Tab(text: 'Connectors')],
         ),
         body: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width - 100),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Column(
-                children: [
-                  _buildSearchBar(),
-                  Expanded(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        CollectionTable(collection: 'components', columns: _componentsCols, searchQuery: _searchQuery),
-                        CollectionTable(collection: 'ics', columns: _icsCols, searchQuery: _searchQuery),
-                        CollectionTable(collection: 'connectors', columns: _connectorsCols, searchQuery: _searchQuery),
-                      ],
-                    ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
+            child: Column(
+              children: [
+                _buildSearchBar(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      CollectionDataGrid(collection: 'components', columns: _componentsCols, searchQuery: _searchQuery),
+                      CollectionDataGrid(collection: 'ics', columns: _icsCols, searchQuery: _searchQuery),
+                      CollectionDataGrid(collection: 'connectors', columns: _connectorsCols, searchQuery: _searchQuery),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

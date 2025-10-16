@@ -1,9 +1,5 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
-
-bool get _isDesktop =>
-    const {TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.macOS}.contains(defaultTargetPlatform);
 
 Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> collectionStream(String collection) {
   final col = FirebaseFirestore.instance
@@ -13,9 +9,8 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> collectionStream(Strin
         toFirestore: (m, _) => m,
       );
 
-  if (_isDesktop) {
-    return Stream.periodic(const Duration(seconds: 1)).asyncMap((_) => col.get()).map((snap) => snap.docs);
-  } else {
-    return col.snapshots().map((snap) => snap.docs);
-  }
+  // Use Firestore's real-time snapshots for ALL platforms.
+  // The SDK handles this efficiently on desktop, mobile, and web.
+  // This will only emit new data when a change actually happens.
+  return col.snapshots().map((snap) => snap.docs);
 }

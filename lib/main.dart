@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:go_router/go_router.dart';
 import 'package:smd_inv/pages/full_list.dart';
-
 
 import 'data/firebase_options.dart';
 
@@ -10,34 +10,338 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await clearFirestoreCache();
-  runApp(MyApp());
+  runApp(SmdInvApp());
 }
 
 Future clearFirestoreCache() async {
   try {
     await FirebaseFirestore.instance.clearPersistence();
-    print("Firestore cache cleared successfully.");
-  } catch (e) {
-    print("Failed to clear Firestore cache: $e");
-  }
+  } catch (_) {}
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class SmdInvApp extends StatelessWidget {
+  const SmdInvApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Inventory Viewer',
+      title: 'SMD Inventory',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
         visualDensity: VisualDensity.compact,
       ),
-      home: FullList(),
+      routerConfig: _router,
     );
   }
 }
 
+// ---- Routing ----
 
+enum AppRoute { inventory, boards, admin }
+
+final _router = GoRouter(
+  initialLocation: '/inventory',
+  routes: [
+    GoRoute(path: '/inventory', name: AppRoute.inventory.name, pageBuilder: (c, s) => _page(c, const FullList(), s)),
+    GoRoute(path: '/boards', name: AppRoute.boards.name, pageBuilder: (c, s) => _page(c, const BoardsPage(), s)),
+    GoRoute(path: '/admin', name: AppRoute.admin.name, pageBuilder: (c, s) => _page(c, const AdminPage(), s)),
+  ],
+);
+
+CustomTransitionPage _page(BuildContext context, Widget child, GoRouterState s) {
+  return CustomTransitionPage(
+    key: s.pageKey,
+    child: Scaffold(
+      appBar: const PreferredSize(preferredSize: Size.fromHeight(128), child: TopBar()),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.95),
+          child: child,
+        ),
+      ),
+    ),
+    transitionsBuilder: (context, animation, secondary, child) {
+      return FadeTransition(opacity: animation, child: child);
+    },
+  );
+}
+
+// ---- Top bar with title-left, tabs-right ----
+
+class TopBar extends StatelessWidget {
+  const TopBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      elevation: 0,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.95),
+          child: Row(
+            children: [
+              // Title (left)
+              InkWell(
+                onTap: () => context.goNamed(AppRoute.inventory.name),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.widgets_outlined, color: scheme.primary, size: 60, ),
+                      const SizedBox(width: 14),
+                      Text(
+                        'SMD Inventory',
+                        style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: scheme.onSurface, fontFamily: 'Corbel'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 24),
+              // Tabs (right)
+              const _NavTabs(),
+              const Spacer(),
+              const Text('This space reserved for Steve.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavTabs extends StatelessWidget {
+  const _NavTabs();
+
+  @override
+  Widget build(BuildContext context) {
+    // final loc = GoRouterState.of(context).uri.toString();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: const [
+        _NavTab(label: 'Inventory', route: AppRoute.inventory, match: '/inventory'),
+        _NavTab(label: 'Boards', route: AppRoute.boards, match: '/boards'),
+        _NavTab(label: 'Admin', route: AppRoute.admin, match: '/admin'),
+      ],
+    );
+  }
+}
+
+class _NavTab extends StatelessWidget {
+  final String label;
+  final AppRoute route;
+  final String match;
+
+  const _NavTab({required this.label, required this.route, required this.match});
+
+  bool _isActive(BuildContext context) {
+    final uri = GoRouterState.of(context).uri.toString();
+    return uri.startsWith(match);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _isActive(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 20),
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => context.goNamed(route.name),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: active ? scheme.primary.withAlpha(20) : Colors.transparent),
+              borderRadius: BorderRadius.circular(8),
+              color: active ? scheme.primaryContainer.withAlpha(180) : Colors.transparent,
+            ),
+            child: Stack(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    color: active ? scheme.onPrimaryContainer : scheme.onSurface,
+                  ),
+                ),
+                // underline indicator
+                Positioned.fill(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      height: 3,
+                      width: active ? 70 : 0,
+                      decoration: BoxDecoration(
+                        color: active ? scheme.primary : Colors.transparent,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---- Page stubs (replace with your real content) ----
+
+class InventoryPage extends StatelessWidget {
+  const InventoryPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return _PageScaffold(
+      title: 'Inventory',
+      actions: [
+        FilledButton.icon(
+          onPressed: () {
+            // open: Add Component -> Manual / Import CSV
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Add Component'),
+        ),
+      ],
+      child: Placeholder(
+        // replace with your DataGrid + filters
+        strokeWidth: 1.5,
+        color: Theme.of(context).colorScheme.outline,
+      ),
+    );
+  }
+}
+
+class BoardsPage extends StatelessWidget {
+  const BoardsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return _PageScaffold(
+      title: 'Boards',
+      actions: [
+        FilledButton.icon(
+          onPressed: () {
+            // open: Add Board -> KiCad BOM import
+          },
+          icon: const Icon(Icons.playlist_add),
+          label: const Text('Add Board'),
+        ),
+      ],
+      child: Placeholder(
+        // replace with boards list
+        strokeWidth: 1.5,
+        color: Theme.of(context).colorScheme.outline,
+      ),
+    );
+  }
+}
+
+class AdminPage extends StatelessWidget {
+  const AdminPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget tile(IconData icon, String title, String subtitle, VoidCallback onTap) {
+      return Card(
+        elevation: 0,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(icon, size: 28, color: scheme.primary),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return _PageScaffold(
+      title: 'Admin',
+      child: Column(
+        children: [
+          tile(Icons.fact_check_outlined, 'Audit Inventory', 'Count & reconcile stock variances', () {}),
+          tile(Icons.history_outlined, 'History & Undo', 'Review changes and revert if needed', () {}),
+          tile(Icons.settings_outlined, 'Settings', 'Fields, units, locations, low-stock rules', () {}),
+        ],
+      ),
+    );
+  }
+}
+
+// Shared page frame
+class _PageScaffold extends StatelessWidget {
+  final String title;
+  final List<Widget>? actions;
+  final Widget child;
+
+  const _PageScaffold({required this.title, required this.child, this.actions});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header row
+        Row(
+          children: [
+            Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            if (actions != null) ...actions!,
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Content card
+        Expanded(
+          child: Card(
+            elevation: 0,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: scheme.outlineVariant),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(padding: const EdgeInsets.all(16), child: child),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
