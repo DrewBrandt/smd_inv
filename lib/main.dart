@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:go_router/go_router.dart';
-import 'package:smd_inv/pages/full_list.dart';
+import 'package:smd_inv/pages/boards.dart';
+import 'package:smd_inv/pages/boards_editor.dart';
+import 'package:smd_inv/pages/inventory.dart';
 
 import 'data/firebase_options.dart';
 
@@ -44,9 +46,17 @@ enum AppRoute { inventory, boards, admin }
 final _router = GoRouter(
   initialLocation: '/inventory',
   routes: [
+    GoRoute(path: '/', name: 'root', redirect: (c, s) => '/inventory'),
     GoRoute(path: '/inventory', name: AppRoute.inventory.name, pageBuilder: (c, s) => _page(c, const FullList(), s)),
     GoRoute(path: '/boards', name: AppRoute.boards.name, pageBuilder: (c, s) => _page(c, const BoardsPage(), s)),
     GoRoute(path: '/admin', name: AppRoute.admin.name, pageBuilder: (c, s) => _page(c, const AdminPage(), s)),
+    // add to your GoRouter
+    GoRoute(path: '/boards/new', name: 'boardNew', pageBuilder: (c, s) => _page(c, BoardEditorPage(), s)),
+    GoRoute(
+      path: '/boards/:id',
+      name: 'boardEdit',
+      pageBuilder: (c, s) => _page(c, BoardEditorPage(boardId: s.pathParameters['id']!), s),
+    ),
   ],
 );
 
@@ -93,11 +103,16 @@ class TopBar extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                   child: Row(
                     children: [
-                      Icon(Icons.widgets_outlined, color: scheme.primary, size: 60, ),
+                      Icon(Icons.widgets_outlined, color: scheme.primary, size: 60),
                       const SizedBox(width: 14),
                       Text(
                         'SMD Inventory',
-                        style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: scheme.onSurface, fontFamily: 'Corbel'),
+                        style: TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.w900,
+                          color: scheme.onSurface,
+                          fontFamily: 'Corbel',
+                        ),
                       ),
                     ],
                   ),
@@ -243,11 +258,7 @@ class BoardsPage extends StatelessWidget {
           label: const Text('Add Board'),
         ),
       ],
-      child: Placeholder(
-        // replace with boards list
-        strokeWidth: 1.5,
-        color: Theme.of(context).colorScheme.outline,
-      ),
+      child: BoardsView(),
     );
   }
 }
@@ -314,34 +325,37 @@ class _PageScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section header row
-        Row(
-          children: [
-            Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-            const Spacer(),
-            if (actions != null) ...actions!,
-          ],
-        ),
-        const SizedBox(height: 16),
-        // Content card
-        Expanded(
-          child: Card(
-            elevation: 0,
-            clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: scheme.outlineVariant),
-                borderRadius: BorderRadius.circular(12),
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section header row
+          Row(
+            children: [
+              Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              const Spacer(),
+              if (actions != null) ...actions!,
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Content card
+          Expanded(
+            child: Card(
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: scheme.outlineVariant),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(padding: const EdgeInsets.all(16), child: child),
               ),
-              child: Padding(padding: const EdgeInsets.all(16), child: child),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
