@@ -90,7 +90,8 @@ class TopBar extends StatelessWidget {
 
     return Material(
       color: scheme.surfaceContainerHighest,
-      elevation: 0,
+      elevation: 6,
+
       child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.95),
@@ -123,7 +124,7 @@ class TopBar extends StatelessWidget {
               // Tabs (right)
               const _NavTabs(),
               const Spacer(),
-              const Text('This space reserved for Steve.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              const Text('God I\'m so bored.', style: TextStyle(color: Colors.grey, fontSize: 12)),
             ],
           ),
         ),

@@ -98,30 +98,30 @@ class _FullListState extends State<FullList> with SingleTickerProviderStateMixin
   // }
 
   // Column configs per tab
-  List<ColumnSpec> get _componentsCols => const [
-    ColumnSpec(label: 'Part Type', field: 'part_type', capitalize: true, editable: true),
-    ColumnSpec(label: 'Size', field: 'size', editable: true),
-    ColumnSpec(label: 'Value', field: 'value', editable: true),
-    ColumnSpec(label: 'Qty', field: 'qty', editable: true, kind: CellKind.integer),
-    ColumnSpec(label: 'Location', field: 'location', editable: true, kind: CellKind.text),
-    ColumnSpec(label: 'Notes', field: 'notes', editable: true, kind: CellKind.text),
+  List<ColumnSpec> get _componentsCols => [
+    ColumnSpec(field: 'part_type', capitalize: true),
+    ColumnSpec(field: 'size'),
+    ColumnSpec(field: 'value'),
+    ColumnSpec(field: 'qty', kind: CellKind.integer),
+    ColumnSpec(field: 'location'),
+    ColumnSpec(field: 'notes'),
   ];
 
-  List<ColumnSpec> get _icsCols => const [
-    ColumnSpec(label: 'Part #', field: 'part_#', editable: true),
-    ColumnSpec(label: 'Description', field: 'description', editable: true),
-    ColumnSpec(label: 'Qty', field: 'qty', editable: true, kind: CellKind.integer),
-    ColumnSpec(label: 'Location', field: 'location', editable: true, kind: CellKind.text),
-    ColumnSpec(label: 'Notes', field: 'notes', editable: true, kind: CellKind.text),
-    ColumnSpec(label: 'Datasheet', field: 'datasheet', editable: true, kind: CellKind.url, maxPercentWidth: 70),
+  List<ColumnSpec> get _icsCols => [
+    ColumnSpec(field: 'part_#'),
+    ColumnSpec(field: 'description'),
+    ColumnSpec(field: 'qty', kind: CellKind.integer),
+    ColumnSpec(field: 'location'),
+    ColumnSpec(field: 'notes'),
+    ColumnSpec(field: 'datasheet', kind: CellKind.url, maxPercentWidth: 70),
   ];
 
-  List<ColumnSpec> get _connectorsCols => const [
-    ColumnSpec(label: 'Part #', field: 'part_#', editable: true),
-    ColumnSpec(label: 'Description', field: 'description', editable: true),
-    ColumnSpec(label: 'Qty', field: 'qty', editable: true, kind: CellKind.integer),
-    ColumnSpec(label: 'Location', field: 'location', editable: true, kind: CellKind.text),
-    ColumnSpec(label: 'Notes', field: 'notes', editable: true, kind: CellKind.text),
+  List<ColumnSpec> get _connectorsCols => [
+    ColumnSpec(field: 'part_#'),
+    ColumnSpec(field: 'description'),
+    ColumnSpec(field: 'qty', kind: CellKind.integer),
+    ColumnSpec(field: 'location'),
+    ColumnSpec(field: 'notes'),
   ];
 
   Widget _buildSearchBar() {
@@ -151,7 +151,7 @@ class _FullListState extends State<FullList> with SingleTickerProviderStateMixin
         appBar: TabBar(
 
           controller: _tabController,
-          tabs: const [Tab(text: 'Components'), Tab(text: 'ICs'), Tab(text: 'Connectors')],
+          tabs: const [Tab(text: 'Passives'), Tab(text: 'ICs'), Tab(text: 'Connectors')],
         ),
         body: Center(
           child: Padding(

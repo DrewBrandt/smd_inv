@@ -2,11 +2,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BomLine {
-  final int qty;
-  final String? category;
-  final Map<String, dynamic> requiredAttributes;
-  final DocumentReference<Map<String, dynamic>>? selectedComponentRef;
-  final String? notes;
+  int qty;
+  String? category;
+  Map<String, dynamic> requiredAttributes;
+  DocumentReference<Map<String, dynamic>>? selectedComponentRef;
+  String? notes;
 
   BomLine({required this.qty, this.category, required this.requiredAttributes, this.selectedComponentRef, this.notes});
 
