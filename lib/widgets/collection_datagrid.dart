@@ -135,7 +135,7 @@ class _CollectionDataGridState extends State<CollectionDataGrid>
 
         final docs = snap.data ?? [];
         final filteredDocs = _filter(docs, widget.searchQuery);
-        final dataSource = FirestoreDataSource(docs: filteredDocs, columns: widget.columns);
+        final dataSource = FirestoreDataSource(docs: filteredDocs, columns: widget.columns, colorScheme: Theme.of(context).colorScheme);
 
         return LayoutBuilder(
           builder: (context, constraints) {

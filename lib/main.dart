@@ -31,9 +31,10 @@ class SmdInvApp extends StatelessWidget {
       title: 'SMD Inventory',
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey, brightness: Brightness.light),
         visualDensity: VisualDensity.compact,
       ),
+      
       routerConfig: _router,
     );
   }
@@ -215,54 +216,6 @@ class _NavTab extends StatelessWidget {
   }
 }
 
-// ---- Page stubs (replace with your real content) ----
-
-class InventoryPage extends StatelessWidget {
-  const InventoryPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return _PageScaffold(
-      title: 'Inventory',
-      actions: [
-        FilledButton.icon(
-          onPressed: () {
-            // open: Add Component -> Manual / Import CSV
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Add Component'),
-        ),
-      ],
-      child: Placeholder(
-        // replace with your DataGrid + filters
-        strokeWidth: 1.5,
-        color: Theme.of(context).colorScheme.outline,
-      ),
-    );
-  }
-}
-
-class BoardsPage extends StatelessWidget {
-  const BoardsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return _PageScaffold(
-      title: 'Boards',
-      actions: [
-        FilledButton.icon(
-          onPressed: () {
-            // open: Add Board -> KiCad BOM import
-          },
-          icon: const Icon(Icons.playlist_add),
-          label: const Text('Add Board'),
-        ),
-      ],
-      child: BoardsView(),
-    );
-  }
-}
-
 class AdminPage extends StatelessWidget {
   const AdminPage({super.key});
 
@@ -272,8 +225,10 @@ class AdminPage extends StatelessWidget {
 
     Widget tile(IconData icon, String title, String subtitle, VoidCallback onTap) {
       return Card(
+        color: scheme.surfaceContainer,
         elevation: 0,
         clipBehavior: Clip.antiAlias,
+        margin: EdgeInsets.all(8),
         child: InkWell(
           onTap: onTap,
           child: Padding(
@@ -300,62 +255,13 @@ class AdminPage extends StatelessWidget {
       );
     }
 
-    return _PageScaffold(
-      title: 'Admin',
-      child: Column(
+    return Column(
         children: [
+          SizedBox(height: 24),
           tile(Icons.fact_check_outlined, 'Audit Inventory', 'Count & reconcile stock variances', () {}),
           tile(Icons.history_outlined, 'History & Undo', 'Review changes and revert if needed', () {}),
           tile(Icons.settings_outlined, 'Settings', 'Fields, units, locations, low-stock rules', () {}),
         ],
-      ),
-    );
-  }
-}
-
-// Shared page frame
-class _PageScaffold extends StatelessWidget {
-  final String title;
-  final List<Widget>? actions;
-  final Widget child;
-
-  const _PageScaffold({required this.title, required this.child, this.actions});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 16, bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Section header row
-          Row(
-            children: [
-              Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-              const Spacer(),
-              if (actions != null) ...actions!,
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Content card
-          Expanded(
-            child: Card(
-              elevation: 0,
-              clipBehavior: Clip.antiAlias,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: scheme.outlineVariant),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(padding: const EdgeInsets.all(16), child: child),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

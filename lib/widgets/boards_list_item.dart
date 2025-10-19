@@ -1,38 +1,30 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:smd_inv/models/board.dart';
-
-final Map<String, Color> _categoryColors = {
-  'radio': const Color.fromARGB(255, 119, 192, 252),
-  'fc': const Color.fromARGB(255, 136, 224, 139),
-  'gs': Colors.orange,
-  'test': Colors.purple,
-};
-
-
+import '../models/board.dart';
+import '../models/readiness.dart';
+import '../ui/category_colors.dart';
+import 'make_sheet.dart';
 
 class BoardListItem extends StatelessWidget {
   final BoardDoc board;
-  final int buildableQty; // precomputed
-  final double bomReadyPct; // 0..1
-  final List<Shortfall> shortfallsTop; // e.g., up to 3 items
-  final int shortfallsMore; // remaining count
+  final Readiness readiness;
+  final VoidCallback onOpen;
+  final Future<void> Function()? onDuplicate;
+  final Future<void> Function(int qty)? onMake;
 
   const BoardListItem({
     super.key,
     required this.board,
-    required this.buildableQty,
-    required this.bomReadyPct,
-    required this.shortfallsTop,
-    required this.shortfallsMore,
+    required this.readiness,
+    required this.onOpen,
+    this.onDuplicate,
+    this.onMake,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ready = buildableQty > 0 && shortfallsTop.isEmpty;
-    final partial = buildableQty > 0 && shortfallsTop.isNotEmpty;
+    final ready = readiness.buildableQty > 0 && readiness.shortfalls.isEmpty;
+    final partial = readiness.buildableQty > 0 && readiness.shortfalls.isNotEmpty;
 
     Icon statusIcon() {
       if (ready) return Icon(Icons.check_circle, color: Colors.green.shade700);
@@ -43,10 +35,10 @@ class BoardListItem extends StatelessWidget {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: cs.surface,
+      color: cs.surfaceContainer,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => context.go('/boards/${board.id}'),
+        onTap: onOpen,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Row(
@@ -56,16 +48,14 @@ class BoardListItem extends StatelessWidget {
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  boxShadow: [
-                    BoxShadow(color: cs.shadow.withAlpha(100), blurRadius: 4, offset: const Offset(0, 2)),
-                  ],
-                  color: _parseColor(board.color, cs.surface),
+                  color: cs.surface,
                   image:
-                      board.imageUrl != null
+                      (board.imageUrl?.isNotEmpty ?? false)
                           ? DecorationImage(image: NetworkImage(board.imageUrl!), fit: BoxFit.cover)
                           : null,
-                  borderRadius: BorderRadius.all(Radius.circular(50.0)),
+                  borderRadius: BorderRadius.circular(50),
                   border: Border.all(color: cs.onSurface, width: 0.5),
+                  boxShadow: [BoxShadow(color: cs.shadow.withAlpha(100), blurRadius: 4, offset: const Offset(0, 2))],
                 ),
               ),
               const SizedBox(width: 12),
@@ -101,10 +91,24 @@ class BoardListItem extends StatelessWidget {
                       ),
                     const SizedBox(height: 6),
                     Row(
-                      spacing: 8,
                       children: [
-                        if ((board.category ?? '').isNotEmpty) _chip(board.category!, cs),
-                        _meta('Parts', '${board.bom.length}'),
+                        if ((board.category ?? '').isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: categoryColor(board.category, cs.surfaceContainer),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              board.category!,
+                              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Parts: ${board.bom.length}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
                       ],
                     ),
                   ],
@@ -113,34 +117,58 @@ class BoardListItem extends StatelessWidget {
 
               const SizedBox(width: 12),
 
-              // Readiness module
+              // Readiness
               Expanded(
                 flex: 4,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Can make
                     Row(
                       children: [
                         Text('Can make: ', style: TextStyle(color: cs.onSurfaceVariant)),
-                        Text('$buildableQty', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        Text(
+                          '${readiness.buildableQty}',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    // Progress
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(value: bomReadyPct),
+                      child: LinearProgressIndicator(value: readiness.readyPct),
                     ),
                     const SizedBox(height: 6),
-                    // Shortfalls (top 3) + +N more
-                    if (shortfallsTop.isNotEmpty)
+                    if (readiness.shortfalls.isNotEmpty)
                       Wrap(
                         spacing: 6,
                         runSpacing: 6,
                         children: [
-                          for (final s in shortfallsTop) _shortfallChip('${s.label} ×${s.missing}'),
-                          if (shortfallsMore > 0) _shortfallChip('+$shortfallsMore more'),
+                          for (final s in readiness.shortfalls.take(3))
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withAlpha(20),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: Colors.red.withAlpha(75)),
+                              ),
+                              child: Text(
+                                '${s.label} ×${s.missing}',
+                                style: const TextStyle(fontSize: 12, color: Colors.red),
+                              ),
+                            ),
+                          if (readiness.shortfalls.length > 3)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withAlpha(20),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: Colors.red.withAlpha(75)),
+                              ),
+                              child: Text(
+                                '+${readiness.shortfalls.length - 3} more',
+                                style: const TextStyle(fontSize: 12, color: Colors.red),
+                              ),
+                            ),
                         ],
                       ),
                   ],
@@ -154,20 +182,18 @@ class BoardListItem extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   FilledButton.icon(
-                    onPressed: () => _showMakeSheet(context, board, buildableQty),
+                    onPressed:
+                        onMake == null
+                            ? null
+                            : () async {
+                              final qty = await showMakeSheet(context, maxQty: readiness.buildableQty);
+                              if (qty != null) await onMake!(qty);
+                            },
                     icon: const Icon(Icons.play_arrow),
                     label: const Text('Make'),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: 'Open',
-                    // onPressed: () => context.go('/boards/${board.id}'),
-                    onPressed: () async {
-                      final newId = await duplicateBoard(board.id);
-                      debugPrint('Cloned to $newId');
-                    },
-                    icon: const Icon(Icons.chevron_right),
-                  ),
+                  IconButton(tooltip: 'Open', onPressed: onOpen, icon: const Icon(Icons.chevron_right)),
                 ],
               ),
             ],
@@ -176,119 +202,4 @@ class BoardListItem extends StatelessWidget {
       ),
     );
   }
-
-  // --- helpers (keep trivial) ---
-  Widget _chip(String text, ColorScheme cs) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(color: _categoryColors[text.toLowerCase()] ?? cs.surfaceContainer, borderRadius: BorderRadius.circular(999)),
-    child: Text(text, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700)),
-  );
-
-  Widget _meta(String k, String v) => Align(alignment: Alignment.centerLeft, child: Text('$k: $v', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)));
-
-  Widget _shortfallChip(String t) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: Colors.red.withOpacity(.08),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: Colors.red.withOpacity(.3)),
-    ),
-    child: Text(t, style: const TextStyle(fontSize: 12, color: Colors.red)),
-  );
-
-  void _showMakeSheet(BuildContext context, BoardDoc b, int maxQty) {
-    int qty = (maxQty > 0) ? 1 : 0;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder:
-          (c) => Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const Text('Quantity'),
-                const SizedBox(width: 12),
-                IconButton(
-                  onPressed:
-                      qty > 0
-                          ? () {
-                            qty = (qty - 1).clamp(0, maxQty);
-                            (c as Element).markNeedsBuild();
-                          }
-                          : null,
-                  icon: const Icon(Icons.remove),
-                ),
-                Text('$qty', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                IconButton(
-                  onPressed:
-                      qty < maxQty
-                          ? () {
-                            qty = (qty + 1).clamp(0, maxQty);
-                            (c as Element).markNeedsBuild();
-                          }
-                          : null,
-                  icon: const Icon(Icons.add),
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed:
-                      qty > 0
-                          ? () {
-                            Navigator.pop(c); /* call your build/consume flow */
-                          }
-                          : null,
-                  child: const Text('Confirm'),
-                ),
-              ],
-            ),
-          ),
-    );
-  }
-
-  String _initials(String s) => s.trim().split(RegExp(r'\s+')).take(2).map((p) => p[0].toUpperCase()).join();
-
-  Color _parseColor(String? hex, Color fallback) {
-    if (hex == null || hex.isEmpty) return fallback;
-    final h = hex.replaceAll('#', '');
-    if (h.length == 6) return Color(int.parse('FF$h', radix: 16));
-    if (h.length == 8) return Color(int.parse(h, radix: 16));
-    return fallback;
-  }
-}
-
-class Shortfall {
-  final String label; // e.g., "10k 0402" or "ESP32"
-  final int missing;
-  Shortfall(this.label, this.missing);
-}
-
-class Readiness {
-  final int buildableQty; // e.g., 0, 1, 2...
-  final double readyPct; // 0.0..1.0
-  final List<Shortfall> shortfalls;
-
-  Readiness({required this.buildableQty, required this.readyPct, required this.shortfalls});
-}
-
-Future<String> duplicateBoard(String sourceId, {String? newName}) async {
-  final db = FirebaseFirestore.instance;
-  final srcRef = db.collection('boards').doc(sourceId);
-  final snap = await srcRef.get();
-  if (!snap.exists) {
-    throw StateError('Board $sourceId not found');
-  }
-
-  // Shallow clone of the document data
-  final data = Map<String, dynamic>.from(snap.data()!);
-
-  // Optional tweaks so the copy is distinguishable + sorted correctly
-  data['name'] = newName ?? '${data['name']} (copy)';
-  data['createdAt'] = FieldValue.serverTimestamp();
-  data['updatedAt'] = FieldValue.serverTimestamp();
-
-  // Write to a new doc with an auto ID
-  final dstRef = db.collection('boards').doc();
-  await dstRef.set(data);
-
-  return dstRef.id;
 }

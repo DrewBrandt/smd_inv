@@ -13,12 +13,14 @@ class FirestoreDataSource extends DataGridSource {
   late List<Doc> _docs;
   late List<ColumnSpec> _columns;
   List<DataGridRow> _dataGridRows = [];
+  late ColorScheme _colorScheme;
   final TextEditingController editingController = TextEditingController();
   String? newCellValue;
 
-  FirestoreDataSource({required List<Doc> docs, required List<ColumnSpec> columns}) {
+  FirestoreDataSource({required List<Doc> docs, required List<ColumnSpec> columns, required ColorScheme colorScheme}) {
     _docs = docs;
     _columns = columns;
+    _colorScheme = colorScheme;
     _buildDataGridRows();
   }
 
@@ -81,7 +83,7 @@ class FirestoreDataSource extends DataGridSource {
     final rowIndex = _dataGridRows.indexOf(row);
     final even = rowIndex.isEven;
     // Alternating row color using theme tones
-    final Color? altColor = even ? null : Colors.black.withOpacity(0.03); // subtle; tweak to taste
+    final Color? altColor = even ? _colorScheme.surfaceContainer : _colorScheme.surfaceContainerHighest; // subtle; tweak to taste
 
     return DataGridRowAdapter(
       color: altColor,

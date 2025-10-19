@@ -1,9 +1,4 @@
-import 'dart:convert';
-import 'dart:io';
-import 'package:csv/csv.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:smd_inv/widgets/collection_datagrid.dart';
 
 import '../models/columns.dart';
@@ -30,77 +25,77 @@ class _FullListState extends State<FullList> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
-  Future<void> _uploadCSV() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'tsv']);
-    if (result == null || result.files.single.path == null) return;
+  // Future<void> _uploadCSV() async {
+  //   final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'tsv']);
+  //   if (result == null || result.files.single.path == null) return;
 
-    final input = File(result.files.single.path!).openRead().transform(utf8.decoder);
-    final rows = await input.transform(const CsvToListConverter(shouldParseNumbers: false)).toList();
-    if (rows.isEmpty) return;
+  //   final input = File(result.files.single.path!).openRead().transform(utf8.decoder);
+  //   final rows = await input.transform(const CsvToListConverter(shouldParseNumbers: false)).toList();
+  //   if (rows.isEmpty) return;
 
-    final headers = rows.first.map((e) => e.toString().trim()).toList();
+  //   final headers = rows.first.map((e) => e.toString().trim()).toList();
 
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      final docData = <String, dynamic>{
-        for (var j = 0; j < headers.length && j < row.length; j++) headers[j]: row[j].toString().trim(),
-      };
+  //   for (var i = 1; i < rows.length; i++) {
+  //     final row = rows[i];
+  //     final docData = <String, dynamic>{
+  //       for (var j = 0; j < headers.length && j < row.length; j++) headers[j]: row[j].toString().trim(),
+  //     };
 
-      final category = docData.remove('Type') ?? 'misc_parts';
-      final collRef = FirebaseFirestore.instance.collection(category);
+  //     final category = docData.remove('Type') ?? 'misc_parts';
+  //     final collRef = FirebaseFirestore.instance.collection(category);
 
-      QuerySnapshot dupQuery;
-      if (category == 'components') {
-        final pt = docData['part_type']?.toString() ?? '';
-        final sz = docData['size']?.toString() ?? '';
-        final val = docData['value']?.toString() ?? '';
-        dupQuery =
-            await collRef
-                .where('part_type', isEqualTo: pt)
-                .where('size', isEqualTo: sz)
-                .where('value', isEqualTo: val)
-                .get();
-      } else {
-        final partNum = docData['part_#']?.toString() ?? '';
-        dupQuery = await collRef.where('part_#', isEqualTo: partNum).get();
-      }
+  //     QuerySnapshot dupQuery;
+  //     if (category == 'components') {
+  //       final pt = docData['part_type']?.toString() ?? '';
+  //       final sz = docData['size']?.toString() ?? '';
+  //       final val = docData['value']?.toString() ?? '';
+  //       dupQuery =
+  //           await collRef
+  //               .where('part_type', isEqualTo: pt)
+  //               .where('size', isEqualTo: sz)
+  //               .where('value', isEqualTo: val)
+  //               .get();
+  //     } else {
+  //       final partNum = docData['part_#']?.toString() ?? '';
+  //       dupQuery = await collRef.where('part_#', isEqualTo: partNum).get();
+  //     }
 
-      if (dupQuery.docs.isNotEmpty) {
-        final existingDoc = dupQuery.docs.first;
-        final existingQty = existingDoc.get('qty') ?? 0;
-        final newQty = (int.tryParse(docData['qty']?.toString() ?? '') ?? 0);
+  //     if (dupQuery.docs.isNotEmpty) {
+  //       final existingDoc = dupQuery.docs.first;
+  //       final existingQty = existingDoc.get('qty') ?? 0;
+  //       final newQty = (int.tryParse(docData['qty']?.toString() ?? '') ?? 0);
 
-        final choice = await showDialog<String>(
-          context: context,
-          builder:
-              (ctx) => AlertDialog(
-                title: const Text('Duplicate Item Found'),
-                content: Text(
-                  category == 'components'
-                      ? 'Component "${docData['part_type']} ${docData['size']}/${docData['value']}" already has quantity $existingQty.\nWhat do you want to do?'
-                      : 'IC "${docData['part_#']}" already has quantity $existingQty.\nWhat do you want to do?',
-                ),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Cancel')),
-                  TextButton(onPressed: () => Navigator.pop(ctx, 'skip'), child: const Text('Skip')),
-                  TextButton(onPressed: () => Navigator.pop(ctx, 'replace'), child: const Text('Replace')),
-                  TextButton(onPressed: () => Navigator.pop(ctx, 'add'), child: const Text('Add')),
-                ],
-              ),
-        );
+  //       final choice = await showDialog<String>(
+  //         context: context,
+  //         builder:
+  //             (ctx) => AlertDialog(
+  //               title: const Text('Duplicate Item Found'),
+  //               content: Text(
+  //                 category == 'components'
+  //                     ? 'Component "${docData['part_type']} ${docData['size']}/${docData['value']}" already has quantity $existingQty.\nWhat do you want to do?'
+  //                     : 'IC "${docData['part_#']}" already has quantity $existingQty.\nWhat do you want to do?',
+  //               ),
+  //               actions: [
+  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Cancel')),
+  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'skip'), child: const Text('Skip')),
+  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'replace'), child: const Text('Replace')),
+  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'add'), child: const Text('Add')),
+  //               ],
+  //             ),
+  //       );
 
-        if (choice == 'add') {
-          await existingDoc.reference.update({'qty': FieldValue.increment(newQty)});
-        } else if (choice == 'replace') {
-          await existingDoc.reference.update({'qty': newQty});
-        } else if (choice == 'cancel') {
-          break;
-        }
-      } else {
-        await collRef.add(docData);
-      }
-    }
-  }
+  //       if (choice == 'add') {
+  //         await existingDoc.reference.update({'qty': FieldValue.increment(newQty)});
+  //       } else if (choice == 'replace') {
+  //         await existingDoc.reference.update({'qty': newQty});
+  //       } else if (choice == 'cancel') {
+  //         break;
+  //       }
+  //     } else {
+  //       await collRef.add(docData);
+  //     }
+  //   }
+  // }
 
   // Column configs per tab
   List<ColumnSpec> get _componentsCols => const [
@@ -149,9 +144,12 @@ class _FullListState extends State<FullList> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
+
       length: 3,
       child: Scaffold(
+        backgroundColor: Colors.transparent,
         appBar: TabBar(
+
           controller: _tabController,
           tabs: const [Tab(text: 'Components'), Tab(text: 'ICs'), Tab(text: 'Connectors')],
         ),
