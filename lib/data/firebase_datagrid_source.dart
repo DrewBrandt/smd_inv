@@ -1,10 +1,10 @@
-// lib/data/firestore_datagrid_source.dart
+// lib/data/firebase_datagrid_source.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:smd_inv/models/columns.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
-import '../models/columns.dart';
 import './base_datagrid_source.dart';
-import './datagrid_helpers.dart'; // Import the shared helpers
+import './datagrid_helpers.dart';
 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
@@ -26,8 +26,15 @@ class FirestoreDataSource extends BaseDataGridSource {
     return DataGridRow(
       cells:
           columns.map((col) {
-            final value = getNestedMapValue(data, col.field); // Use helper
-            return DataGridCell<String>(columnName: col.field, value: value?.toString() ?? '');
+            final value = getNestedMapValue(data, col.field);
+            String displayValue = value?.toString() ?? '';
+
+            // Format 'type' field specially
+            if (col.field == 'type' && displayValue.isNotEmpty) {
+              displayValue = _formatType(displayValue);
+            }
+
+            return DataGridCell<String>(columnName: col.field, value: displayValue);
           }).toList(),
     );
   }
@@ -35,11 +42,16 @@ class FirestoreDataSource extends BaseDataGridSource {
   @override
   Future<void> onCommitValue(int rowIndex, String path, dynamic parsedValue) async {
     final doc = _docs[rowIndex];
-
     // Firestore supports dot-notation for updates directly
     await doc.reference.update({path: parsedValue});
-
     // Keep the local cache in sync
     setNestedMapValue(doc.data(), path, parsedValue);
+  }
+
+  /// Format type field: IC stays caps, others capitalize first letter
+  String _formatType(String type) {
+    final lower = type.toLowerCase();
+    if (lower == 'ic') return 'IC';
+    return type[0].toUpperCase() + type.substring(1);
   }
 }

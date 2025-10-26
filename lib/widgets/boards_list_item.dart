@@ -152,7 +152,7 @@ class BoardListItem extends StatelessWidget {
                                 border: Border.all(color: Colors.red.withAlpha(75)),
                               ),
                               child: Text(
-                                '${s.label} ×${s.missing}',
+                                '${s.part} ×${s.qty}',
                                 style: const TextStyle(fontSize: 12, color: Colors.red),
                               ),
                             ),

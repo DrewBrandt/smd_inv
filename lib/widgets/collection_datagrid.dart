@@ -3,13 +3,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smd_inv/data/list_map_source.dart';
+import 'package:smd_inv/data/unified_firestore_streams.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
 
 import '../data/firebase_datagrid_source.dart'; // keeps your FirestoreDataSource
-import '../data/firestore_streams.dart';
 import '../models/columns.dart';
 
+
+/// LEGACY: This widget is for non-inventory collections.
+/// For inventory, use UnifiedInventoryGrid instead.
+/// 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
 class CollectionDataGrid extends StatefulWidget {

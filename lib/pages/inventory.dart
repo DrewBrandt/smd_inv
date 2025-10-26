@@ -1,177 +1,257 @@
+// lib/pages/inventory.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:smd_inv/widgets/collection_datagrid.dart';
-
-import '../models/columns.dart';
+import 'package:smd_inv/widgets/unified_inventory_grid.dart';
+import 'package:smd_inv/widgets/manual_add_dialog.dart';
+import 'package:smd_inv/widgets/csv_import_dialog.dart';
 
 class FullList extends StatefulWidget {
   const FullList({super.key});
+
   @override
   State<FullList> createState() => _FullListState();
 }
 
-class _FullListState extends State<FullList> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _FullListState extends State<FullList> {
   String _searchQuery = '';
+
+  // Filter states
+  Set<String> _selectedTypes = {};
+  Set<String> _selectedPackages = {};
+  Set<String> _selectedLocations = {};
+
+  // Available filter values (will be populated from Firestore)
+  List<String> _availableTypes = [];
+  List<String> _availablePackages = [];
+  List<String> _availableLocations = [];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _loadFilterOptions();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  Future<void> _loadFilterOptions() async {
+    // Get unique values for filters
+    final snapshot = await FirebaseFirestore.instance.collection('inventory').get();
+
+    final types = <String>{};
+    final packages = <String>{};
+    final locations = <String>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['type'] != null) types.add(data['type'].toString());
+      if (data['package'] != null && data['package'].toString().isNotEmpty) {
+        packages.add(data['package'].toString());
+      }
+      if (data['location'] != null && data['location'].toString().isNotEmpty) {
+        locations.add(data['location'].toString());
+      }
+    }
+
+    setState(() {
+      _availableTypes = types.toList()..sort();
+      _availablePackages = packages.toList()..sort();
+      _availableLocations = locations.toList()..sort();
+    });
   }
-
-  // Future<void> _uploadCSV() async {
-  //   final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'tsv']);
-  //   if (result == null || result.files.single.path == null) return;
-
-  //   final input = File(result.files.single.path!).openRead().transform(utf8.decoder);
-  //   final rows = await input.transform(const CsvToListConverter(shouldParseNumbers: false)).toList();
-  //   if (rows.isEmpty) return;
-
-  //   final headers = rows.first.map((e) => e.toString().trim()).toList();
-
-  //   for (var i = 1; i < rows.length; i++) {
-  //     final row = rows[i];
-  //     final docData = <String, dynamic>{
-  //       for (var j = 0; j < headers.length && j < row.length; j++) headers[j]: row[j].toString().trim(),
-  //     };
-
-  //     final category = docData.remove('Type') ?? 'misc_parts';
-  //     final collRef = FirebaseFirestore.instance.collection(category);
-
-  //     QuerySnapshot dupQuery;
-  //     if (category == 'components') {
-  //       final pt = docData['part_type']?.toString() ?? '';
-  //       final sz = docData['size']?.toString() ?? '';
-  //       final val = docData['value']?.toString() ?? '';
-  //       dupQuery =
-  //           await collRef
-  //               .where('part_type', isEqualTo: pt)
-  //               .where('size', isEqualTo: sz)
-  //               .where('value', isEqualTo: val)
-  //               .get();
-  //     } else {
-  //       final partNum = docData['part_#']?.toString() ?? '';
-  //       dupQuery = await collRef.where('part_#', isEqualTo: partNum).get();
-  //     }
-
-  //     if (dupQuery.docs.isNotEmpty) {
-  //       final existingDoc = dupQuery.docs.first;
-  //       final existingQty = existingDoc.get('qty') ?? 0;
-  //       final newQty = (int.tryParse(docData['qty']?.toString() ?? '') ?? 0);
-
-  //       final choice = await showDialog<String>(
-  //         context: context,
-  //         builder:
-  //             (ctx) => AlertDialog(
-  //               title: const Text('Duplicate Item Found'),
-  //               content: Text(
-  //                 category == 'components'
-  //                     ? 'Component "${docData['part_type']} ${docData['size']}/${docData['value']}" already has quantity $existingQty.\nWhat do you want to do?'
-  //                     : 'IC "${docData['part_#']}" already has quantity $existingQty.\nWhat do you want to do?',
-  //               ),
-  //               actions: [
-  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Cancel')),
-  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'skip'), child: const Text('Skip')),
-  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'replace'), child: const Text('Replace')),
-  //                 TextButton(onPressed: () => Navigator.pop(ctx, 'add'), child: const Text('Add')),
-  //               ],
-  //             ),
-  //       );
-
-  //       if (choice == 'add') {
-  //         await existingDoc.reference.update({'qty': FieldValue.increment(newQty)});
-  //       } else if (choice == 'replace') {
-  //         await existingDoc.reference.update({'qty': newQty});
-  //       } else if (choice == 'cancel') {
-  //         break;
-  //       }
-  //     } else {
-  //       await collRef.add(docData);
-  //     }
-  //   }
-  // }
-
-  // Column configs per tab
-  List<ColumnSpec> get _componentsCols => [
-    ColumnSpec(field: 'part_type', capitalize: true),
-    ColumnSpec(field: 'size'),
-    ColumnSpec(field: 'value'),
-    ColumnSpec(field: 'qty', kind: CellKind.integer),
-    ColumnSpec(field: 'location'),
-    ColumnSpec(field: 'notes'),
-  ];
-
-  List<ColumnSpec> get _icsCols => [
-    ColumnSpec(field: 'part_#'),
-    ColumnSpec(field: 'description'),
-    ColumnSpec(field: 'qty', kind: CellKind.integer),
-    ColumnSpec(field: 'location'),
-    ColumnSpec(field: 'notes'),
-    ColumnSpec(field: 'datasheet', kind: CellKind.url, maxPercentWidth: 70),
-  ];
-
-  List<ColumnSpec> get _connectorsCols => [
-    ColumnSpec(field: 'part_#'),
-    ColumnSpec(field: 'description'),
-    ColumnSpec(field: 'qty', kind: CellKind.integer),
-    ColumnSpec(field: 'location'),
-    ColumnSpec(field: 'notes'),
-  ];
 
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        decoration: InputDecoration(
-          labelText: 'Search inventory',
-          prefixIcon: const Icon(Icons.search),
-          isDense: true,
-          filled: true,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        ),
-        onChanged: (v) => setState(() => _searchQuery = v.trim()),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              decoration: InputDecoration(
+                labelText: 'Search (comma-separated for AND)',
+                hintText: 'e.g., "ind, 0805" finds inductors with 0805 package',
+                prefixIcon: const Icon(Icons.search),
+                isDense: true,
+                filled: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              onChanged: (v) => setState(() => _searchQuery = v.trim()),
+            ),
+          ),
+          const SizedBox(width: 12),
+          MenuAnchor(
+            builder: (context, controller, child) {
+              return FilledButton.icon(
+                onPressed: () {
+                  if (controller.isOpen) {
+                    controller.close();
+                  } else {
+                    controller.open();
+                  }
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Add'),
+              );
+            },
+            menuChildren: [
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.edit_outlined),
+                onPressed: _addManualRow,
+                child: const Text('Add Manual Entry'),
+              ),
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.upload_file_outlined),
+                onPressed: _importCSV,
+                child: const Text('Import from CSV'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
+  Widget _buildFilterChips() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          // Type filter
+          _buildFilterMenu(
+            icon: Icons.category_outlined,
+            label: 'Type',
+            selected: _selectedTypes,
+            available: _availableTypes,
+            onChanged: (selected) => setState(() => _selectedTypes = selected),
+            formatLabel: (type) {
+              // Format: IC stays caps, others capitalize first letter
+              if (type.toLowerCase() == 'ic') return 'IC';
+              return type[0].toUpperCase() + type.substring(1);
+            },
+          ),
+
+          // Package filter
+          _buildFilterMenu(
+            icon: Icons.inventory_2_outlined,
+            label: 'Package',
+            selected: _selectedPackages,
+            available: _availablePackages,
+            onChanged: (selected) => setState(() => _selectedPackages = selected),
+          ),
+
+          // Location filter
+          _buildFilterMenu(
+            icon: Icons.location_on_outlined,
+            label: 'Location',
+            selected: _selectedLocations,
+            available: _availableLocations,
+            onChanged: (selected) => setState(() => _selectedLocations = selected),
+          ),
+
+          // Clear all filters
+          if (_selectedTypes.isNotEmpty || _selectedPackages.isNotEmpty || _selectedLocations.isNotEmpty)
+            ActionChip(
+              avatar: const Icon(Icons.clear_all, size: 18),
+              label: const Text('Clear Filters'),
+              onPressed: () {
+                setState(() {
+                  _selectedTypes.clear();
+                  _selectedPackages.clear();
+                  _selectedLocations.clear();
+                });
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterMenu({
+    required IconData icon,
+    required String label,
+    required Set<String> selected,
+    required List<String> available,
+    required ValueChanged<Set<String>> onChanged,
+    String Function(String)? formatLabel,
+  }) {
+    return MenuAnchor(
+      builder: (context, controller, child) {
+        final count = selected.length;
+        return FilterChip(
+          avatar: Icon(icon, size: 18),
+          label: Text(count > 0 ? '$label ($count)' : label),
+          selected: count > 0,
+          onSelected: (_) {
+            if (controller.isOpen) {
+              controller.close();
+            } else {
+              controller.open();
+            }
+          },
+        );
+      },
+      menuChildren: [
+        if (available.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No options available', style: TextStyle(color: Colors.grey)),
+          )
+        else
+          ...available.map((value) {
+            final isSelected = selected.contains(value);
+            final displayLabel = formatLabel?.call(value) ?? value;
+
+            return CheckboxMenuButton(
+              value: isSelected,
+              onChanged: (checked) {
+                final newSelected = Set<String>.from(selected);
+                if (checked == true) {
+                  newSelected.add(value);
+                } else {
+                  newSelected.remove(value);
+                }
+                onChanged(newSelected);
+              },
+              child: Text(displayLabel),
+            );
+          }),
+      ],
+    );
+  }
+
+  void _addManualRow() {
+    showDialog(
+      context: context,
+      builder: (ctx) => const ManualAddDialog(),
+    ).then((_) => _loadFilterOptions()); // Refresh filter options after adding
+  }
+
+  void _importCSV() {
+    showDialog(
+      context: context,
+      builder: (ctx) => const CSVImportDialog(),
+    ).then((_) => _loadFilterOptions()); // Refresh filter options after import
+  }
+
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-
-      length: 3,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: TabBar(
-
-          controller: _tabController,
-          tabs: const [Tab(text: 'Passives'), Tab(text: 'ICs'), Tab(text: 'Connectors')],
-        ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
-            child: Column(
-              children: [
-                _buildSearchBar(),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      CollectionDataGrid(collection: 'components', columns: _componentsCols, searchQuery: _searchQuery),
-                      CollectionDataGrid(collection: 'ics', columns: _icsCols, searchQuery: _searchQuery),
-                      CollectionDataGrid(collection: 'connectors', columns: _connectorsCols, searchQuery: _searchQuery),
-                    ],
-                  ),
-                ),
-              ],
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
+        child: Column(
+          children: [
+            _buildSearchBar(),
+            _buildFilterChips(),
+            Expanded(
+              child: UnifiedInventoryGrid(
+                searchQuery: _searchQuery,
+                typeFilter: _selectedTypes.isEmpty ? null : _selectedTypes.toList(),
+                packageFilter: _selectedPackages.isEmpty ? null : _selectedPackages.toList(),
+                locationFilter: _selectedLocations.isEmpty ? null : _selectedLocations.toList(),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

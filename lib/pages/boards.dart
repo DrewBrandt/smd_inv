@@ -1,13 +1,15 @@
+// lib/pages/boards.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:smd_inv/data/firestore_streams.dart';
+import 'package:smd_inv/data/unified_firestore_streams.dart';
 import 'package:smd_inv/models/board.dart';
 import 'package:smd_inv/models/readiness.dart';
-import 'package:smd_inv/widgets/boards_list_item.dart';
+import 'package:smd_inv/widgets/board_card.dart';
+import 'package:smd_inv/services/readiness_calculator.dart';
 import '../data/boards_repo.dart';
 
-typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>; // if you had it elsewhere, reuse
+typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
 class BoardsPage extends StatelessWidget {
   const BoardsPage({super.key});
@@ -23,72 +25,170 @@ class BoardsPage extends StatelessWidget {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
 
         final boards = snap.data!.map(BoardDoc.fromSnap).toList();
+
         if (boards.isEmpty) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('No boards yet'),
+                Icon(Icons.dashboard_outlined, size: 64, color: Colors.grey.shade400),
+                const SizedBox(height: 16),
+                const Text('No boards yet', style: TextStyle(fontSize: 18)),
                 const SizedBox(height: 8),
-                OutlinedButton.icon(
+                const Text('Create a board to track parts and build readiness'),
+                const SizedBox(height: 24),
+                FilledButton.icon(
                   onPressed: () => context.go('/boards/new'),
-                  icon: const Icon(Icons.playlist_add),
-                  label: const Text('Add your first board'),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create First Board'),
                 ),
               ],
             ),
           );
         }
 
-        return 
-        Padding(
-          padding: const EdgeInsets.only(top: 24),
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: boards.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, i) {
-              final b = boards[i];
-              final r = _computeReadinessStub(b); // TODO: replace with real inventory math
-              return BoardListItem(
-                board: b,
-                readiness: r,
-                onOpen: () => context.go('/boards/${b.id}'),
-                onDuplicate: () async {
-                  final newId = await repo.duplicateBoard(b.id);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cloned to $newId')));
+        return Column(
+          children: [
+            // Header with add button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: Row(
+                children: [
+                  Text('Boards (${boards.length})', style: Theme.of(context).textTheme.titleLarge),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: () => context.go('/boards/new'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('New Board'),
+                  ),
+                ],
+              ),
+            ),
+
+            // Board grid
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 400,
+                  childAspectRatio: 0.75,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                itemCount: boards.length,
+                itemBuilder: (context, i) {
+                  final b = boards[i];
+
+                  return FutureBuilder<Readiness>(
+                    future: ReadinessCalculator.calculate(b),
+                    builder: (context, readinessSnap) {
+                      final r = readinessSnap.data ?? const Readiness(buildableQty: 0, readyPct: 0.0, shortfalls: []);
+
+                      return ImprovedBoardCard(
+                        board: b,
+                        readiness: r,
+                        onOpen: () => context.go('/boards/${b.id}'),
+                        onDuplicate: () async {
+                          final newId = await repo.duplicateBoard(b.id);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Cloned to $newId')));
+                          }
+                        },
+                        onMake: (qty) async {
+                          await _makeBoards(context, b, qty);
+                        },
+                      );
+                    },
+                  );
                 },
-                onMake: (qty) async {
-                  // TODO: call your build/consume flow here
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Make $qty × ${b.name} (stub)')));
-                },
-              );
-            },
-          ),
+              ),
+            ),
+          ],
         );
       },
     );
   }
-}
 
-// Temporary placeholder until you wire inventory math
-Readiness _computeReadinessStub(BoardDoc b) {
-  if (b.bom.isEmpty) return const Readiness(buildableQty: 0, readyPct: 0.0, shortfalls: []);
-  // Demo: if any line has notes containing "missing", treat as shortfall
-  final missing = <Shortfall>[];
-  for (final line in b.bom) {
-    final ra = line.requiredAttributes;
-    final label = [
-      if (ra['value'] != null) ra['value'],
-      if (ra['size'] != null) ra['size'],
-      if (ra['part_type'] != null) ra['part_type'],
-      if (ra['part_#'] != null) ra['part_#'],
-    ].whereType<String>().join(' ');
-    if ((line.notes ?? '').toLowerCase().contains('missing')) {
-      missing.add(Shortfall(label.isEmpty ? 'part' : label, line.qty));
+  Future<void> _makeBoards(BuildContext context, BoardDoc board, int qty) async {
+    // Show confirmation dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: Text('Make $qty × ${board.name}?'),
+            content: Text(
+              'This will subtract the required quantities from your inventory.\n\n'
+              'This action can be undone from the History page.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm')),
+            ],
+          ),
+    );
+
+    if (confirm != true || !context.mounted) return;
+
+    // Show progress
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (ctx) => const AlertDialog(
+            content: Row(
+              children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Subtracting parts from inventory...')],
+            ),
+          ),
+    );
+
+    try {
+      // Process each BOM line
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final line in board.bom) {
+        final attrs = line.requiredAttributes;
+        final requiredQty = line.qty * qty;
+
+        // Find inventory item (same logic as readiness calculator)
+        final selectedRef = attrs['selected_component_ref']?.toString();
+        if (selectedRef != null && selectedRef.isNotEmpty) {
+          final docRef = FirebaseFirestore.instance.collection('inventory').doc(selectedRef);
+          batch.update(docRef, {
+            'qty': FieldValue.increment(-requiredQty),
+            'last_updated': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      // Create history entry
+      await FirebaseFirestore.instance.collection('history').add({
+        'action': 'make_board',
+        'board_id': board.id,
+        'board_name': board.name,
+        'quantity': qty,
+        'timestamp': FieldValue.serverTimestamp(),
+        'bom_snapshot': board.bom.map((l) => l.toMap()).toList(),
+      });
+
+      await batch.commit();
+
+      if (context.mounted) {
+        Navigator.pop(context); // Close progress dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Made $qty × ${board.name}'),
+            action: SnackBarAction(
+              label: 'View History',
+              onPressed: () => context.go('/admin'), // Assuming history is in admin
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Close progress dialog
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red));
+      }
     }
   }
-  final readyLines = b.bom.length - missing.length;
-  final pct = b.bom.isEmpty ? 0.0 : (readyLines / b.bom.length).clamp(0.0, 1.0);
-  return Readiness(buildableQty: missing.isEmpty ? 1 : 0, readyPct: pct, shortfalls: missing);
 }

@@ -1,12 +1,16 @@
-class Shortfall {
-  final String label; // e.g., "10k 0402" or "ESP32"
-  final int missing; // how many we’re short for one unit
-  const Shortfall(this.label, this.missing);
+// lib/models/readiness.dart
+class Readiness {
+  final int buildableQty;
+  final double readyPct; // 0.0 to 1.0
+  final List<Shortfall> shortfalls;
+  final double? totalCost;
+
+  const Readiness({required this.buildableQty, required this.readyPct, required this.shortfalls, this.totalCost});
 }
 
-class Readiness {
-  final int buildableQty; // 0, 1, 2...
-  final double readyPct; // 0.0..1.0
-  final List<Shortfall> shortfalls;
-  const Readiness({required this.buildableQty, required this.readyPct, required this.shortfalls});
+class Shortfall {
+  final String part;
+  final int qty;
+
+  const Shortfall(this.part, this.qty);
 }

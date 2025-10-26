@@ -124,7 +124,7 @@ class TopBar extends StatelessWidget {
               // Tabs (right)
               const _NavTabs(),
               const Spacer(),
-              const Text('God I\'m so bored.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              const Text('God I\'m so board. haha', style: TextStyle(color: Colors.grey, fontSize: 12)),
             ],
           ),
         ),
