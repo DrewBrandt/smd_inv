@@ -8,7 +8,13 @@ class BomLine {
   DocumentReference<Map<String, dynamic>>? selectedComponentRef;
   String? notes;
 
-  BomLine({required this.qty, this.category, required this.requiredAttributes, this.selectedComponentRef, this.notes});
+  BomLine({
+    required this.qty,
+    this.category,
+    required this.requiredAttributes,
+    this.selectedComponentRef,
+    this.notes,
+  });
 
   factory BomLine.fromMap(Map<String, dynamic> m, FirebaseFirestore db) {
     DocumentReference<Map<String, dynamic>>? ref;
@@ -20,15 +26,24 @@ class BomLine {
       );
     } else if (rawRef is String && rawRef.isNotEmpty) {
       // if stored as path string
-      ref = db
-          .doc(rawRef)
-          .withConverter<Map<String, dynamic>>(fromFirestore: (s, _) => s.data() ?? {}, toFirestore: (v, _) => v);
+      try {
+        ref = db
+            .doc(rawRef)
+            .withConverter<Map<String, dynamic>>(
+              fromFirestore: (s, _) => s.data() ?? {},
+              toFirestore: (v, _) => v,
+            );
+      } catch (e) {
+        // invalid path string
+      }
     }
 
     return BomLine(
       qty: (m['qty'] ?? 0) as int,
       category: m['category'] as String?,
-      requiredAttributes: Map<String, dynamic>.from(m['required_attributes'] ?? const {}),
+      requiredAttributes: Map<String, dynamic>.from(
+        m['required_attributes'] ?? const {},
+      ),
       selectedComponentRef: ref,
       notes: m['notes'] as String?,
     );
@@ -73,7 +88,12 @@ class BoardDoc {
       category: m['category'] as String?,
       color: m['color'] as String?,
       imageUrl: m['imageUrl'] as String?,
-      bom: bomRaw.map((e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map), db)).toList(),
+      bom:
+          bomRaw
+              .map(
+                (e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map), db),
+              )
+              .toList(),
     );
   }
 }

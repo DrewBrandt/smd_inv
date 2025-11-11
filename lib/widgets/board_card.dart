@@ -33,7 +33,7 @@ class ImprovedBoardCard extends StatelessWidget {
       child: InkWell(
         onTap: onOpen,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Header with image/icon
             Container(
@@ -50,185 +50,187 @@ class ImprovedBoardCard extends StatelessWidget {
                       : _buildPlaceholderIcon(cs),
             ),
 
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          board.name,
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            board.name,
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
-                      if (board.category != null && board.category!.isNotEmpty)
-                        Chip(
-                          label: Text(board.category!, style: const TextStyle(fontSize: 11)),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                    ],
-                  ),
-
-                  if (board.description != null && board.description!.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      board.description!,
-                      style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                        if (board.category != null && board.category!.isNotEmpty)
+                          Chip(
+                            label: Text(board.category!, style: const TextStyle(fontSize: 11)),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                      ],
                     ),
-                  ],
 
-                  const SizedBox(height: 16),
-
-                  // Stats row
-                  Row(
-                    children: [
-                      _buildStat(
-                        icon: Icons.widgets_outlined,
-                        label: 'Parts',
-                        value: '${board.bom.length}',
-                        color: cs.primary,
-                      ),
-                      const SizedBox(width: 16),
-                      _buildStat(
-                        icon: Icons.price_check_outlined,
-                        label: 'Cost',
-                        value: totalCost > 0 ? '\$${totalCost.toStringAsFixed(2)}' : '–',
-                        color: cs.tertiary,
-                      ),
-                      const SizedBox(width: 16),
-                      _buildStat(
-                        icon: Icons.inventory_outlined,
-                        label: 'Buildable',
-                        value: buildableQty > 0 ? '$buildableQty×' : '0×',
-                        color: buildableQty > 0 ? Colors.green : Colors.red,
+                    if (board.description != null && board.description!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        board.description!,
+                        style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                  ),
 
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                  // Readiness indicator
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Inventory Readiness',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant),
-                          ),
-                          Text(
-                            '${(readyPct * 100).toStringAsFixed(0)}%',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: _getReadinessColor(readyPct),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: readyPct,
-                          minHeight: 8,
-                          backgroundColor: cs.surfaceContainerHighest,
-                          valueColor: AlwaysStoppedAnimation(_getReadinessColor(readyPct)),
+                    // Stats row
+                    Row(
+                      children: [
+                        _buildStat(
+                          icon: Icons.widgets_outlined,
+                          label: 'Parts',
+                          value: '${board.bom.length}',
+                          color: cs.primary,
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 16),
+                        _buildStat(
+                          icon: Icons.price_check_outlined,
+                          label: 'Cost',
+                          value: totalCost > 0 ? '\$${totalCost.toStringAsFixed(2)}' : '–',
+                          color: cs.tertiary,
+                        ),
+                        const SizedBox(width: 16),
+                        _buildStat(
+                          icon: Icons.inventory_outlined,
+                          label: 'Buildable',
+                          value: buildableQty > 0 ? '$buildableQty×' : '0×',
+                          color: buildableQty > 0 ? Colors.green : Colors.red,
+                        ),
+                      ],
+                    ),
 
-                  // Shortfalls
-                  if (readiness.shortfalls.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orange.shade200),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.warning_amber, size: 16, color: Colors.orange.shade700),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Missing ${readiness.shortfalls.length} part(s)',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange.shade900,
-                                ),
+                    const SizedBox(height: 16),
+
+                    // Readiness indicator
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Inventory Readiness',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant),
+                            ),
+                            Text(
+                              '${(readyPct * 100).toStringAsFixed(0)}%',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _getReadinessColor(readyPct),
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: readyPct,
+                            minHeight: 8,
+                            backgroundColor: cs.surfaceContainerHighest,
+                            valueColor: AlwaysStoppedAnimation(_getReadinessColor(readyPct)),
                           ),
-                          const SizedBox(height: 4),
-                          ...readiness.shortfalls
-                              .take(readiness.shortfalls.length > 3 ? 2 : readiness.shortfalls.length)
-                              .map(
-                                (s) => Padding(
-                                  padding: const EdgeInsets.only(left: 20, top: 2),
-                                  child: Text(
-                                    '• ${s.part}: ${s.qty} needed',
-                                    style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+                        ),
+                      ],
+                    ),
+
+                    // Shortfalls
+                    if (readiness.shortfalls.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.warning_amber, size: 16, color: Colors.orange.shade700),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Missing ${readiness.shortfalls.length} part(s)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange.shade900,
                                   ),
                                 ),
-                              ),
-                          if (readiness.shortfalls.length > 3)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 20, top: 2),
-                              child: Text(
-                                '• ... and ${readiness.shortfalls.length - 2} more',
-                                style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
-                              ),
+                              ],
                             ),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 16),
-
-                  // Action buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: onOpen,
-                          icon: const Icon(Icons.edit, size: 16),
-                          label: const Text('Edit'),
+                            const SizedBox(height: 4),
+                            ...readiness.shortfalls
+                                .take(readiness.shortfalls.length > 3 ? 2 : readiness.shortfalls.length)
+                                .map(
+                                  (s) => Padding(
+                                    padding: const EdgeInsets.only(left: 20, top: 2),
+                                    child: Text(
+                                      '• ${s.part}: ${s.qty} needed',
+                                      style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+                                    ),
+                                  ),
+                                ),
+                            if (readiness.shortfalls.length > 3)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 20, top: 2),
+                                child: Text(
+                                  '• ... and ${readiness.shortfalls.length - 2} more',
+                                  style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+                                ),
+                              ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: buildableQty > 0 ? () => _showMakeDialog(context) : null,
-                          icon: const Icon(Icons.construction, size: 16),
-                          label: const Text('Make'),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: onDuplicate,
-                        icon: const Icon(Icons.content_copy, size: 18),
-                        tooltip: 'Duplicate',
                       ),
                     ],
-                  ),
-                ],
+                    
+                    const Spacer(),
+                    
+                    // Action buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onOpen,
+                            icon: const Icon(Icons.edit, size: 16),
+                            label: const Text('Edit'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: buildableQty > 0 ? () => _showMakeDialog(context) : null,
+                            icon: const Icon(Icons.construction, size: 16),
+                            label: const Text('Make'),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: onDuplicate,
+                          icon: const Icon(Icons.content_copy, size: 18),
+                          tooltip: 'Duplicate',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

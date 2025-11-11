@@ -71,7 +71,7 @@ class BoardsPage extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                   maxCrossAxisExtent: 400,
-                  childAspectRatio: 0.75,
+                  childAspectRatio: 0.72,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
                 ),

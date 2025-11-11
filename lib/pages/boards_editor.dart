@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:smd_inv/widgets/boards_editor/frontmatter.dart';
 import 'package:smd_inv/widgets/bom_import_dialog.dart';
-import 'package:smd_inv/widgets/unified_inventory_grid.dart';
 import '../models/board.dart';
 import 'package:smd_inv/widgets/collection_datagrid.dart';
 import '../models/columns.dart';
@@ -242,7 +241,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                     else
                       SizedBox(
                         height: 500, // Fixed height for grid
-                        child: UnifiedInventoryGrid(
+                        child: CollectionDataGrid(
                           
                           rows: _bom,
                           columns: _bomColumns,
