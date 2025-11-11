@@ -1,7 +1,5 @@
 // lib/data/firebase_datagrid_source.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
-import 'package:smd_inv/models/columns.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 import './base_datagrid_source.dart';
 import './datagrid_helpers.dart';
@@ -11,9 +9,17 @@ typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 class FirestoreDataSource extends BaseDataGridSource {
   final List<Doc> _docs;
 
-  FirestoreDataSource({required List<Doc> docs, required List<ColumnSpec> columns, required ColorScheme colorScheme})
-    : _docs = docs,
-      super(columns: columns, colorScheme: colorScheme);
+  FirestoreDataSource({required List<Doc> docs, required super.columns, required super.colorScheme})
+    : _docs = docs;
+
+  Doc docAt(int rowIndex) => _docs[rowIndex];
+
+    Future<void> deleteAt(int rowIndex) async {
+    final doc = _docs[rowIndex];
+    await doc.reference.delete();
+    _docs.removeAt(rowIndex);
+    notifyListeners(); // refresh grid
+  }
 
   // --- Implementations of Abstract Methods ---
 

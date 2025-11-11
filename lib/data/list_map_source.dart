@@ -1,6 +1,5 @@
 // lib/data/listmap_datagrid_source.dart
-import 'package:flutter/material.dart';
-import 'package:smd_inv/models/columns.dart';
+
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 import './base_datagrid_source.dart';
 import './datagrid_helpers.dart'; // Import the shared helpers
@@ -11,11 +10,10 @@ class ListMapDataSource extends BaseDataGridSource {
 
   ListMapDataSource({
     required List<Map<String, dynamic>> rows,
-    required List<ColumnSpec> columns,
-    required ColorScheme colorScheme,
+    required super.columns,
+    required super.colorScheme,
     required this.onCommit,
-  }) : _rowsData = rows,
-       super(columns: columns, colorScheme: colorScheme);
+  }) : _rowsData = rows;
 
   // --- Implementations of Abstract Methods ---
 

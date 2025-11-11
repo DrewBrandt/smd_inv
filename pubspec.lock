@@ -85,10 +85,10 @@ packages:
     dependency: transitive
     description:
       name: cross_file
-      sha256: "7caf6a750a0c04effbb52a676dce9a4a592e10ad35c34d6d2d0e4811160d5670"
+      sha256: "942a4791cd385a68ccb3b32c71c427aba508a1bb949b86dff2adbe4049f16239"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.4+2"
+    version: "0.3.5"
   csv:
     dependency: "direct main"
     description:
@@ -433,18 +433,18 @@ packages:
     dependency: "direct main"
     description:
       name: syncfusion_flutter_core
-      sha256: d03c43f577cdbe020d1632bece00cbf8bec4a7d0ab123923b69141b5fec35420
+      sha256: a24e9ec04e03c2c14b7b41b1afe60e455adef09b244ab4c425ce6c5b8f58c9ce
       url: "https://pub.dev"
     source: hosted
-    version: "31.2.3"
+    version: "31.2.4"
   syncfusion_flutter_datagrid:
     dependency: "direct main"
     description:
       name: syncfusion_flutter_datagrid
-      sha256: "155a4b21e8746d6e3ce53ce2d8f850adf86c526d25e4df7274f1ff467921a600"
+      sha256: "0752d4d3f525cbbeac23e9288bbfecf6e58965f7e86ad4aca0b312a6e728ad36"
       url: "https://pub.dev"
     source: hosted
-    version: "31.2.3"
+    version: "31.2.4"
   term_glyph:
     dependency: transitive
     description:

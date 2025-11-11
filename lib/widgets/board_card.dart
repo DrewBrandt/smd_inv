@@ -107,7 +107,7 @@ class ImprovedBoardCard extends StatelessWidget {
                       _buildStat(
                         icon: Icons.inventory_outlined,
                         label: 'Buildable',
-                        value: buildableQty > 0 ? '${buildableQty}×' : '0×',
+                        value: buildableQty > 0 ? '$buildableQty×' : '0×',
                         color: buildableQty > 0 ? Colors.green : Colors.red,
                       ),
                     ],
@@ -178,7 +178,7 @@ class ImprovedBoardCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           ...readiness.shortfalls
-                              .take(3)
+                              .take(readiness.shortfalls.length > 3 ? 2 : readiness.shortfalls.length)
                               .map(
                                 (s) => Padding(
                                   padding: const EdgeInsets.only(left: 20, top: 2),
@@ -192,7 +192,7 @@ class ImprovedBoardCard extends StatelessWidget {
                             Padding(
                               padding: const EdgeInsets.only(left: 20, top: 2),
                               child: Text(
-                                '• ... and ${readiness.shortfalls.length - 3} more',
+                                '• ... and ${readiness.shortfalls.length - 2} more',
                                 style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
                               ),
                             ),

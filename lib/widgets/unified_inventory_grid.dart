@@ -1,6 +1,7 @@
 // lib/widgets/unified_inventory_grid.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
@@ -69,40 +70,43 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
 
   List<Doc> _filterDocs(List<Doc> docs) {
     var filtered = docs;
-    
+
     // Apply filter chips
     if (widget.typeFilter != null && widget.typeFilter!.isNotEmpty) {
-      filtered = filtered.where((d) {
-        final type = d.data()['type']?.toString() ?? '';
-        return widget.typeFilter!.contains(type);
-      }).toList();
+      filtered =
+          filtered.where((d) {
+            final type = d.data()['type']?.toString() ?? '';
+            return widget.typeFilter!.contains(type);
+          }).toList();
     }
-    
+
     if (widget.packageFilter != null && widget.packageFilter!.isNotEmpty) {
-      filtered = filtered.where((d) {
-        final pkg = d.data()['package']?.toString() ?? '';
-        return widget.packageFilter!.contains(pkg);
-      }).toList();
+      filtered =
+          filtered.where((d) {
+            final pkg = d.data()['package']?.toString() ?? '';
+            return widget.packageFilter!.contains(pkg);
+          }).toList();
     }
-    
+
     if (widget.locationFilter != null && widget.locationFilter!.isNotEmpty) {
-      filtered = filtered.where((d) {
-        final loc = d.data()['location']?.toString() ?? '';
-        return widget.locationFilter!.contains(loc);
-      }).toList();
+      filtered =
+          filtered.where((d) {
+            final loc = d.data()['location']?.toString() ?? '';
+            return widget.locationFilter!.contains(loc);
+          }).toList();
     }
-    
+
     // Apply search query (comma-separated AND logic)
     final query = widget.searchQuery.trim();
     if (query.isEmpty) return filtered;
-    
+
     final terms = query.split(',').map((t) => t.trim().toLowerCase()).where((t) => t.isNotEmpty).toList();
     if (terms.isEmpty) return filtered;
-    
+
     return filtered.where((d) {
       final m = d.data();
       final searchableText = m.values.map((v) => v?.toString().toLowerCase() ?? '').join(' ');
-      
+
       // ALL terms must be present (AND logic)
       return terms.every((term) => searchableText.contains(term));
     }).toList();
@@ -149,6 +153,45 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
     _saveWidths();
   }
 
+  Future<void> _showRowMenu({
+    required Offset globalPosition,
+    required int gridRowIndex,
+    required FirestoreDataSource source,
+  }) async {
+    // header is row 0
+    if (gridRowIndex <= 0) return;
+    final docIndex = gridRowIndex - 1;
+    if (docIndex < 0 || docIndex >= source.rowCount) return;
+
+    final doc = source.docAt(docIndex);
+
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
+      items: const [
+        PopupMenuItem(value: 'copy-id', child: Text('Copy Reference')),
+        PopupMenuItem(value: 'delete', child: Text('Delete Row')),
+      ],
+    );
+
+    if (selected == null) return;
+
+    switch (selected) {
+      case 'copy-id':
+        await Clipboard.setData(ClipboardData(text: doc.id));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Document ID copied')));
+        }
+        break;
+      case 'delete':
+        await source.deleteAt(docIndex);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Document deleted')));
+        }
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -166,11 +209,7 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
         }
 
         final docs = _filterDocs(snap.data!);
-        final source = FirestoreDataSource(
-          docs: docs,
-          columns: columns,
-          colorScheme: Theme.of(context).colorScheme,
-        );
+        final source = FirestoreDataSource(docs: docs, columns: columns, colorScheme: Theme.of(context).colorScheme);
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -189,7 +228,8 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
               final sumNow = widths.values.fold<double>(0, (a, b) => a + b);
               final extra = maxW - sumNow;
               if (extra > 0) {
-                final growable = columns.where((c) => !_userWidths.containsKey(c.field) && (weights[c.field] ?? 0) > 0).toList();
+                final growable =
+                    columns.where((c) => !_userWidths.containsKey(c.field) && (weights[c.field] ?? 0) > 0).toList();
                 final totalWeight = growable.fold<double>(0.0, (a, c) => a + (weights[c.field] ?? 0));
                 if (totalWeight > 0) {
                   for (final c in growable) {
@@ -201,20 +241,25 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
               }
             }
 
-            final gridColumns = columns.map((col) => GridColumn(
-              columnName: col.field,
-              width: widths[col.field]!,
-              label: Container(
-                color: headerBg,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  col.label,
-                  style: TextStyle(color: headerFg, fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            )).toList();
+            final gridColumns =
+                columns
+                    .map(
+                      (col) => GridColumn(
+                        columnName: col.field,
+                        width: widths[col.field]!,
+                        label: Container(
+                          color: headerBg,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            col.label,
+                            style: TextStyle(color: headerFg, fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList();
 
             return DecoratedBox(
               decoration: BoxDecoration(
@@ -255,6 +300,18 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
                       onColumnResizeStart: _onColumnResizeStart,
                       onColumnResizeUpdate: _onColumnResizeUpdate,
                       onColumnResizeEnd: _onColumnResizeEnd,
+                      onCellSecondaryTap:
+                          (details) => _showRowMenu(
+                            globalPosition: details.globalPosition,
+                            gridRowIndex: details.rowColumnIndex.rowIndex,
+                            source: source,
+                          ),
+                      onCellLongPress:
+                          (details) => _showRowMenu(
+                            globalPosition: details.globalPosition,
+                            gridRowIndex: details.rowColumnIndex.rowIndex,
+                            source: source,
+                          ),
                     ),
                   ),
                 ),

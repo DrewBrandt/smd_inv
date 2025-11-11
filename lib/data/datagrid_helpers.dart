@@ -8,7 +8,7 @@ dynamic getNestedMapValue(Map<String, dynamic> map, String path) {
   final parts = path.split('.');
   dynamic current = map;
   for (var i = 0; i < parts.length; i++) {
-    if (current == null || !(current is Map)) return null;
+    if (current == null || current is! Map) return null;
     current = current[parts[i]];
   }
   return current;

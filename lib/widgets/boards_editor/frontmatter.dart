@@ -69,7 +69,7 @@ class _FrontmatterSectionState extends State<FrontmatterSection> {
                         valueListenable: widget.category,
                         builder:
                             (_, v, __) => DropdownButtonFormField<String>(
-                              value: (v?.isEmpty ?? true) ? null : v,
+                              initialValue: (v?.isEmpty ?? true) ? null : v,
                               decoration: const InputDecoration(
                                 labelText: 'Category',
                                 border: OutlineInputBorder(),

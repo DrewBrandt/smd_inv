@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:smd_inv/widgets/boards_editor/frontmatter.dart';
 import 'package:smd_inv/widgets/bom_import_dialog.dart';
+import 'package:smd_inv/widgets/unified_inventory_grid.dart';
 import '../models/board.dart';
 import 'package:smd_inv/widgets/collection_datagrid.dart';
 import '../models/columns.dart';
@@ -70,7 +71,6 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
 
     // Handle image upload if new image selected
     String? imageUrl = _image.text.trim().isEmpty ? null : _image.text.trim();
-    // TODO: If _newImage != null, upload to Firebase Storage and get URL
 
     final now = FieldValue.serverTimestamp();
     final data = {
@@ -150,6 +150,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
   }
 
   List<ColumnSpec> get _bomColumns => [
+    ColumnSpec(field: 'selected_component_ref', label: 'Component Ref'),
     ColumnSpec(field: 'designators', label: 'Designators'),
     ColumnSpec(field: 'qty', label: 'Qty', kind: CellKind.integer),
     ColumnSpec(field: 'required_attributes.part_type', label: 'Type', capitalize: true),
@@ -241,7 +242,8 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                     else
                       SizedBox(
                         height: 500, // Fixed height for grid
-                        child: CollectionDataGrid(
+                        child: UnifiedInventoryGrid(
+                          
                           rows: _bom,
                           columns: _bomColumns,
                           persistKey: 'bom_editor_${widget.boardId ?? 'new'}',

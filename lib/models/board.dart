@@ -72,7 +72,7 @@ class BoardDoc {
       description: m['description'] as String?,
       category: m['category'] as String?,
       color: m['color'] as String?,
-      imageUrl: m['image'] as String?,
+      imageUrl: m['imageUrl'] as String?,
       bom: bomRaw.map((e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map), db)).toList(),
     );
   }

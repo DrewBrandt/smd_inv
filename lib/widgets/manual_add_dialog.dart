@@ -106,7 +106,7 @@ class _ManualAddDialogState extends State<ManualAddDialog> {
               children: [
                 // Type dropdown
                 DropdownButtonFormField<String>(
-                  value: _selectedType,
+                  initialValue: _selectedType,
                   decoration: const InputDecoration(
                     labelText: 'Type *',
                     border: OutlineInputBorder(),
