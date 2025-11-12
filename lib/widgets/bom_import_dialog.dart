@@ -34,7 +34,7 @@ class _BomImportDialogState extends State<BomImportDialog> {
 
     try {
       final parseResult = await CsvParserService.parseFromFile(
-        expectedColumns: ['Reference', 'Quantity', 'Value', 'Footprint'],
+        expectedColumns: ['Reference', 'Designator', 'Quantity', 'Qty', 'Value', 'Designation', 'Footprint'],
       );
 
       if (!parseResult.success) {
@@ -80,7 +80,7 @@ class _BomImportDialogState extends State<BomImportDialog> {
 
       final parseResult = CsvParserService.parse(
         text,
-        expectedColumns: ['Reference', 'Quantity', 'Value', 'Footprint'],
+        expectedColumns: ['Reference', 'Designator', 'Quantity', 'Qty', 'Value', 'Designation', 'Footprint'],
       );
 
       if (!parseResult.success) {
@@ -140,21 +140,30 @@ class _BomImportDialogState extends State<BomImportDialog> {
   Future<void> _parseBOMFromResult(CsvParseResult parseResult) async {
     final parsed = <Map<String, dynamic>>[];
 
+    // Detect column names (support multiple BOM formats)
+    final refCol = parseResult.hasColumn('Reference') ? 'Reference' :
+                   parseResult.hasColumn('Designator') ? 'Designator' : null;
+    final qtyCol = parseResult.hasColumn('Quantity') ? 'Quantity' :
+                   parseResult.hasColumn('Qty') ? 'Qty' : null;
+    final valCol = parseResult.hasColumn('Value') ? 'Value' :
+                   parseResult.hasColumn('Designation') ? 'Designation' : null;
+    final fpCol = parseResult.hasColumn('Footprint') ? 'Footprint' : null;
+
     // Check for required columns
-    if (!parseResult.hasColumn('Reference') || !parseResult.hasColumn('Quantity')) {
+    if (refCol == null || qtyCol == null) {
       setState(() {
-        _error = 'Could not find Reference and Quantity columns';
+        _error = 'Could not find required columns (Reference/Designator and Quantity/Qty)';
         _isLoading = false;
       });
       return;
     }
 
     for (final row in parseResult.dataRows) {
-      final designators = parseResult.getCellValue(row, 'Reference');
-      final qty = int.tryParse(parseResult.getCellValue(row, 'Quantity')) ?? 1;
-      final valueRaw = parseResult.getCellValue(row, 'Value');
+      final designators = parseResult.getCellValue(row, refCol);
+      final qty = int.tryParse(parseResult.getCellValue(row, qtyCol)) ?? 1;
+      final valueRaw = valCol != null ? parseResult.getCellValue(row, valCol) : '';
       final value = _normalizeValue(valueRaw);
-      final footprint = parseResult.getCellValue(row, 'Footprint');
+      final footprint = fpCol != null ? parseResult.getCellValue(row, fpCol) : '';
       final partNum = valueRaw.trim();
 
       if (designators.isEmpty) continue;

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -84,16 +85,23 @@ class CsvParserService {
       return CsvParseResult.error('No file selected');
     }
 
-    final bytes = result.files.first.bytes;
-    if (bytes == null) {
-      return CsvParseResult.error('Failed to read file');
-    }
-
+    final file = result.files.first;
     String text;
+
     try {
-      text = utf8.decode(bytes);
+      // On desktop platforms, bytes may be null - use path instead
+      if (file.bytes != null) {
+        // Web and mobile with bytes available
+        text = utf8.decode(file.bytes!);
+      } else if (file.path != null) {
+        // Desktop platforms with file path
+        final fileHandle = File(file.path!);
+        text = await fileHandle.readAsString();
+      } else {
+        return CsvParseResult.error('Failed to read file: No bytes or path available');
+      }
     } catch (e) {
-      return CsvParseResult.error('Failed to decode file: $e');
+      return CsvParseResult.error('Failed to read file: $e');
     }
 
     return parse(text, expectedColumns: expectedColumns);

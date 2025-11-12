@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:smd_inv/widgets/boards_editor/frontmatter.dart';
 import 'package:smd_inv/widgets/bom_import_dialog.dart';
 import '../models/board.dart';
-import 'package:smd_inv/widgets/collection_datagrid.dart';
+import 'package:smd_inv/widgets/unified_data_grid.dart';
 import '../models/columns.dart';
 import '../constants/firestore_constants.dart';
 import '../services/inventory_matcher.dart';
@@ -374,8 +374,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                     else
                       SizedBox(
                         height: 500, // Fixed height for grid
-                        child: CollectionDataGrid(
-                          
+                        child: UnifiedDataGrid.local(
                           rows: _bom,
                           columns: _bomColumns,
                           persistKey: 'bom_editor_${widget.boardId ?? 'new'}',

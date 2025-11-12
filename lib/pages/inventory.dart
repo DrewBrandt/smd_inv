@@ -1,10 +1,11 @@
 // lib/pages/inventory.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:smd_inv/widgets/unified_inventory_grid.dart';
+import 'package:smd_inv/widgets/unified_data_grid.dart';
 import 'package:smd_inv/widgets/manual_add_dialog.dart';
 import 'package:smd_inv/widgets/csv_import_dialog.dart';
 import '../constants/firestore_constants.dart';
+import '../models/columns.dart';
 
 class FullList extends StatefulWidget {
   const FullList({super.key});
@@ -245,7 +246,8 @@ class _FullListState extends State<FullList> {
             _buildSearchBar(),
             _buildFilterChips(),
             Expanded(
-              child: UnifiedInventoryGrid(
+              child: UnifiedDataGrid.inventory(
+                columns: UnifiedInventoryColumns.all,
                 searchQuery: _searchQuery,
                 typeFilter: _selectedTypes.isEmpty ? null : _selectedTypes.toList(),
                 packageFilter: _selectedPackages.isEmpty ? null : _selectedPackages.toList(),

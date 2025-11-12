@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:smd_inv/constants/firestore_constants.dart';
 import 'package:smd_inv/models/columns.dart';
 import 'package:smd_inv/services/csv_parser_service.dart';
-import 'package:smd_inv/widgets/collection_datagrid.dart';
+import 'package:smd_inv/widgets/unified_data_grid.dart';
 
 class CSVImportDialog extends StatefulWidget {
   const CSVImportDialog({super.key});
@@ -524,8 +524,8 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                       ),
                       const SizedBox(height: 12),
                       Expanded(
-                        child: CollectionDataGrid(
-                          rows: _parsedRows,
+                        child: UnifiedDataGrid.local(
+                          rows: _parsedRows!,
                           onRowsChanged: (updated) => setState(() => _parsedRows = updated),
                           columns: [
                             ColumnSpec(field: 'part_#', label: 'Part #'),
@@ -537,7 +537,6 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                             ColumnSpec(field: 'location', label: 'Location'),
                             ColumnSpec(field: 'notes', label: 'Notes'),
                           ],
-                          searchQuery: '',
                           persistKey: 'csv_import_preview',
                         ),
                       ),
