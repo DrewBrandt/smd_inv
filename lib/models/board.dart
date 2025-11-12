@@ -1,5 +1,6 @@
 // lib/models/board.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../constants/firestore_constants.dart';
 
 class BomLine {
   int qty;
@@ -18,7 +19,7 @@ class BomLine {
 
   factory BomLine.fromMap(Map<String, dynamic> m, FirebaseFirestore db) {
     DocumentReference<Map<String, dynamic>>? ref;
-    final rawRef = m['selected_component_ref'];
+    final rawRef = m[FirestoreFields.selectedComponentRef];
     if (rawRef is DocumentReference) {
       ref = rawRef.withConverter<Map<String, dynamic>>(
         fromFirestore: (s, _) => s.data() ?? {},
@@ -39,22 +40,22 @@ class BomLine {
     }
 
     return BomLine(
-      qty: (m['qty'] ?? 0) as int,
-      category: m['category'] as String?,
+      qty: (m[FirestoreFields.qty] ?? 0) as int,
+      category: m[FirestoreFields.category] as String?,
       requiredAttributes: Map<String, dynamic>.from(
-        m['required_attributes'] ?? const {},
+        m[FirestoreFields.requiredAttributes] ?? const {},
       ),
       selectedComponentRef: ref,
-      notes: m['notes'] as String?,
+      notes: m[FirestoreFields.notes] as String?,
     );
   }
 
   Map<String, dynamic> toMap() => {
-    'qty': qty,
-    if (category != null) 'category': category,
-    'required_attributes': requiredAttributes,
-    'selected_component_ref': selectedComponentRef,
-    if (notes != null) 'notes': notes,
+    FirestoreFields.qty: qty,
+    if (category != null) FirestoreFields.category: category,
+    FirestoreFields.requiredAttributes: requiredAttributes,
+    FirestoreFields.selectedComponentRef: selectedComponentRef,
+    if (notes != null) FirestoreFields.notes: notes,
   };
 }
 
@@ -80,14 +81,14 @@ class BoardDoc {
   factory BoardDoc.fromSnap(DocumentSnapshot<Map<String, dynamic>> snap) {
     final m = snap.data() ?? {};
     final db = snap.reference.firestore;
-    final bomRaw = (m['bom'] as List?) ?? const [];
+    final bomRaw = (m[FirestoreFields.bom] as List?) ?? const [];
     return BoardDoc(
       id: snap.id,
-      name: (m['name'] ?? 'Untitled') as String,
-      description: m['description'] as String?,
-      category: m['category'] as String?,
-      color: m['color'] as String?,
-      imageUrl: m['imageUrl'] as String?,
+      name: (m[FirestoreFields.name] ?? 'Untitled') as String,
+      description: m[FirestoreFields.description] as String?,
+      category: m[FirestoreFields.category] as String?,
+      color: m[FirestoreFields.color] as String?,
+      imageUrl: m[FirestoreFields.imageUrl] as String?,
       bom:
           bomRaw
               .map(

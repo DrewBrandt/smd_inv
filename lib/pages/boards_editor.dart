@@ -8,6 +8,8 @@ import 'package:smd_inv/widgets/bom_import_dialog.dart';
 import '../models/board.dart';
 import 'package:smd_inv/widgets/collection_datagrid.dart';
 import '../models/columns.dart';
+import '../constants/firestore_constants.dart';
+import '../services/inventory_matcher.dart';
 
 class BoardEditorPage extends StatefulWidget {
   final String? boardId;
@@ -20,6 +22,7 @@ class BoardEditorPage extends StatefulWidget {
 class _BoardEditorPageState extends State<BoardEditorPage> {
   bool _saving = false;
   bool _dirty = false;
+  bool _isMatching = false;
 
   final _name = TextEditingController();
   final _desc = TextEditingController();
@@ -28,14 +31,22 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
 
   Uint8List? _newImage;
   List<Map<String, dynamic>> _bom = [];
+  QuerySnapshot<Map<String, dynamic>>? _inventoryCache;
 
   @override
   void initState() {
     super.initState();
+    _loadInventoryCache();
     if (widget.boardId != null) _load();
     _name.addListener(_markDirty);
     _desc.addListener(_markDirty);
     _category.addListener(_markDirty);
+  }
+
+  Future<void> _loadInventoryCache() async {
+    _inventoryCache = await FirebaseFirestore.instance
+        .collection(FirestoreCollections.inventory)
+        .get();
   }
 
   void _markDirty() {
@@ -113,17 +124,109 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
   }
 
   Future<void> _importBOM() async {
+    // Warn if replacing existing BOM
+    if (_bom.isNotEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Replace BOM?'),
+          content: const Text(
+            'This will REPLACE your current BOM with the imported data.\n\n'
+            'All existing lines will be removed and replaced with the new import.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+              child: const Text('Replace'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    if (!mounted) return;
+
     final imported = await showDialog<List<Map<String, dynamic>>>(
       context: context,
       builder: (ctx) => const BomImportDialog(),
     );
 
-    if (imported != null && imported.isNotEmpty) {
+    if (imported != null && imported.isNotEmpty && mounted) {
       setState(() {
-        _bom.addAll(imported);
+        _bom = imported; // REPLACE instead of addAll
         _markDirty();
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Imported ${imported.length} BOM lines')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Replaced BOM with ${imported.length} lines')),
+        );
+      }
+    }
+  }
+
+  Future<void> _refreshMatching() async {
+    if (_bom.isEmpty) return;
+
+    setState(() => _isMatching = true);
+
+    try {
+      // Reload inventory
+      await _loadInventoryCache();
+
+      for (final line in _bom) {
+        final attrs = line[FirestoreFields.requiredAttributes] as Map<String, dynamic>?;
+        if (attrs == null) continue;
+
+        final matches = await InventoryMatcher.findMatches(
+          bomAttributes: attrs,
+          inventorySnapshot: _inventoryCache,
+        );
+
+        String? currentRef = attrs[FirestoreFields.selectedComponentRef];
+
+        if (matches.isEmpty) {
+          // No matches - clear selection
+          attrs[FirestoreFields.selectedComponentRef] = null;
+          line['_match_status'] = 'missing';
+        } else if (matches.length == 1) {
+          // Single match - auto-select
+          attrs[FirestoreFields.selectedComponentRef] = matches.first.id;
+          line['_match_status'] = 'matched';
+        } else {
+          // Multiple matches - preserve if valid, otherwise mark ambiguous
+          if (currentRef != null && matches.any((m) => m.id == currentRef)) {
+            line['_match_status'] = 'matched';
+          } else {
+            attrs[FirestoreFields.selectedComponentRef] = null;
+            line['_match_status'] = 'ambiguous';
+          }
+        }
+      }
+
+      setState(() {
+        _isMatching = false;
+        _dirty = true;
+      });
+
+      if (mounted) {
+        final matched = _bom.where((l) => l['_match_status'] == 'matched').length;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Re-paired: $matched of ${_bom.length} matched')),
+        );
+      }
+    } catch (e) {
+      setState(() => _isMatching = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e')),
+        );
+      }
     }
   }
 
@@ -136,17 +239,12 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
         'description': '',
         'category': 'components',
         'required_attributes': {'part_type': '', 'size': '', 'value': '', 'part_#': '', 'selected_component_ref': null},
+        '_match_status': 'missing',
       });
       _markDirty();
     });
   }
 
-  void _deleteLine(int index) {
-    setState(() {
-      _bom.removeAt(index);
-      _markDirty();
-    });
-  }
 
   List<ColumnSpec> get _bomColumns => [
     ColumnSpec(field: 'selected_component_ref', label: 'Component Ref'),
@@ -204,16 +302,51 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                     Row(
                       children: [
                         Text('Bill of Materials', style: Theme.of(context).textTheme.headlineSmall),
-                        const SizedBox(width: 8),
-                        Text('(${_bom.length} lines)', style: Theme.of(context).textTheme.bodyMedium),
+                        const SizedBox(width: 12),
+                        if (_bom.isNotEmpty) ...[
+                          _buildStatusChip('${_bom.length} total', cs.primary),
+                          const SizedBox(width: 8),
+                          _buildStatusChip(
+                            '${_bom.where((l) => l['_match_status'] == 'matched').length} matched',
+                            Colors.green,
+                          ),
+                          if (_bom.where((l) => l['_match_status'] == 'ambiguous').isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            _buildStatusChip(
+                              '${_bom.where((l) => l['_match_status'] == 'ambiguous').length} ambiguous',
+                              Colors.orange,
+                            ),
+                          ],
+                          if (_bom.where((l) => l['_match_status'] == 'missing').isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            _buildStatusChip(
+                              '${_bom.where((l) => l['_match_status'] == 'missing').length} missing',
+                              Colors.red,
+                            ),
+                          ],
+                        ],
                         const Spacer(),
-                        OutlinedButton.icon(
-                          onPressed: _importBOM,
+                        if (_bom.isNotEmpty) ...[
+                          OutlinedButton.icon(
+                            onPressed: _isMatching ? null : _refreshMatching,
+                            icon: _isMatching
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.refresh),
+                            label: const Text('Re-pair All'),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        FilledButton.icon(
+                          onPressed: _isMatching ? null : _importBOM,
                           icon: const Icon(Icons.upload_file),
-                          label: const Text('Import KiCad BOM'),
+                          label: Text(_bom.isEmpty ? 'Import BOM' : 'Replace BOM'),
                         ),
                         const SizedBox(width: 8),
-                        FilledButton.icon(
+                        OutlinedButton.icon(
                           onPressed: _addBomLine,
                           icon: const Icon(Icons.add),
                           label: const Text('Add Line'),
@@ -280,6 +413,16 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStatusChip(String label, Color color) {
+    return Chip(
+      label: Text(label, style: TextStyle(fontSize: 11, color: color)),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      visualDensity: VisualDensity.compact,
+      backgroundColor: color.withValues(alpha: 0.1),
+      side: BorderSide(color: color.withValues(alpha: 0.3)),
     );
   }
 }

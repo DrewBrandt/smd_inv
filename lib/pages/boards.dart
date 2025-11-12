@@ -8,6 +8,7 @@ import 'package:smd_inv/models/readiness.dart';
 import 'package:smd_inv/widgets/board_card.dart';
 import 'package:smd_inv/services/readiness_calculator.dart';
 import '../data/boards_repo.dart';
+import '../constants/firestore_constants.dart';
 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
@@ -19,7 +20,7 @@ class BoardsPage extends StatelessWidget {
     final repo = BoardsRepo();
 
     return StreamBuilder<List<Doc>>(
-      stream: collectionStream('boards'),
+      stream: collectionStream(FirestoreCollections.boards),
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
@@ -150,24 +151,24 @@ class BoardsPage extends StatelessWidget {
         final requiredQty = line.qty * qty;
 
         // Find inventory item (same logic as readiness calculator)
-        final selectedRef = attrs['selected_component_ref']?.toString();
+        final selectedRef = attrs[FirestoreFields.selectedComponentRef]?.toString();
         if (selectedRef != null && selectedRef.isNotEmpty) {
-          final docRef = FirebaseFirestore.instance.collection('inventory').doc(selectedRef);
+          final docRef = FirebaseFirestore.instance.collection(FirestoreCollections.inventory).doc(selectedRef);
           batch.update(docRef, {
-            'qty': FieldValue.increment(-requiredQty),
-            'last_updated': FieldValue.serverTimestamp(),
+            FirestoreFields.qty: FieldValue.increment(-requiredQty),
+            FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
           });
         }
       }
 
       // Create history entry
-      await FirebaseFirestore.instance.collection('history').add({
-        'action': 'make_board',
-        'board_id': board.id,
-        'board_name': board.name,
-        'quantity': qty,
-        'timestamp': FieldValue.serverTimestamp(),
-        'bom_snapshot': board.bom.map((l) => l.toMap()).toList(),
+      await FirebaseFirestore.instance.collection(FirestoreCollections.history).add({
+        FirestoreFields.action: 'make_board',
+        FirestoreFields.boardId: board.id,
+        FirestoreFields.boardName: board.name,
+        FirestoreFields.quantity: qty,
+        FirestoreFields.timestamp: FieldValue.serverTimestamp(),
+        FirestoreFields.bomSnapshot: board.bom.map((l) => l.toMap()).toList(),
       });
 
       await batch.commit();

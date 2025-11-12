@@ -2,14 +2,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
 
 import '../data/firebase_datagrid_source.dart';
 import '../data/unified_firestore_streams.dart';
 import '../models/columns.dart';
-import '../models/unified_columns.dart';
+import '../services/datagrid_column_manager.dart';
 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
@@ -36,36 +35,23 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
   @override
   bool get wantKeepAlive => true;
 
-  final Map<String, double> _userWidths = {};
+  DataGridColumnManager? _columnManager;
   bool _prefsLoaded = false;
-  bool _isResizing = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSavedWidths();
+    _initColumnManager();
   }
 
-  Future<void> _loadSavedWidths() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'dg_widths:inventory_unified';
-    final saved = prefs.getStringList(key) ?? const [];
-    for (final entry in saved) {
-      final eq = entry.indexOf('=');
-      if (eq > 0) {
-        final f = entry.substring(0, eq);
-        final w = double.tryParse(entry.substring(eq + 1));
-        if (w != null && w > 0) _userWidths[f] = w;
-      }
-    }
+  Future<void> _initColumnManager() async {
+    final columns = UnifiedInventoryColumns.all;
+    _columnManager = DataGridColumnManager(
+      persistKey: 'inventory_unified',
+      columns: columns.map((c) => GridColumnConfig(field: c.field, label: c.label)).toList(),
+    );
+    await _columnManager!.loadSavedWidths();
     setState(() => _prefsLoaded = true);
-  }
-
-  Future<void> _saveWidths() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'dg_widths:inventory_unified';
-    final list = _userWidths.entries.map((e) => '${e.key}=${e.value}').toList();
-    await prefs.setStringList(key, list);
   }
 
   List<Doc> _filterDocs(List<Doc> docs) {
@@ -112,45 +98,21 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
     }).toList();
   }
 
-  double _minWidthFor(String field) {
-    final f = field.toLowerCase();
-    if (f == 'qty' || f == 'quantity' || f == 'count') return 84;
-    if (f == 'notes' || f == 'description' || f == 'desc') return 320;
-    if (f == 'datasheet' || f == 'url' || f == 'link' || f == 'vendor_link') return 220;
-    if (f == 'part_#' || f.endsWith('_id')) return 180;
-    if (f == 'size' || f == 'value' || f == 'package') return 120;
-    if (f == 'location') return 160;
-    if (f == 'type' || f == 'category') return 120;
-    return 140;
-  }
-
-  double _weightFor(ColumnSpec col) {
-    if (col.kind == CellKind.integer || col.kind == CellKind.decimal) return 0.0;
-    final f = col.field.toLowerCase();
-    if (f == 'notes' || f == 'description' || f == 'desc') return 4.0;
-    if (f == 'datasheet' || f == 'url' || f == 'link' || f == 'vendor_link') return 2.0;
-    if (f == 'type' || f == 'category') return 1.0;
-    if (f == 'location') return 1.5;
-    if (f == 'size' || f == 'qty' || f == 'quantity' || f == 'count' || f == 'value' || f == 'package') return 0.0;
-    return 1.0;
-  }
-
   bool _onColumnResizeStart(ColumnResizeStartDetails d) {
-    _isResizing = true;
+    _columnManager?.onColumnResizeStart();
     return true;
   }
 
   bool _onColumnResizeUpdate(ColumnResizeUpdateDetails d) {
-    final min = _minWidthFor(d.column.columnName);
+    final min = _columnManager?.getMinWidth(d.column.columnName) ?? 140;
     final clamped = d.width < min ? min : d.width;
-    _userWidths[d.column.columnName] = clamped;
+    _columnManager?.onColumnResizeUpdate(d.column.columnName, clamped);
     setState(() {});
     return true;
   }
 
   void _onColumnResizeEnd(ColumnResizeEndDetails d) {
-    _isResizing = false;
-    _saveWidths();
+    _columnManager?.onColumnResizeEnd();
   }
 
   Future<void> _showRowMenu({
@@ -213,33 +175,8 @@ class _UnifiedInventoryGridState extends State<UnifiedInventoryGrid>
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final mins = <String, double>{for (final c in columns) c.field: _minWidthFor(c.field)};
-            final weights = <String, double>{for (final c in columns) c.field: _weightFor(c)};
-            final widths = <String, double>{for (final c in columns) c.field: mins[c.field]!};
-
-            for (final e in _userWidths.entries) {
-              if (widths.containsKey(e.key)) {
-                widths[e.key] = e.value < mins[e.key]! ? mins[e.key]! : e.value;
-              }
-            }
-
-            if (constraints.maxWidth.isFinite && !_isResizing) {
-              final maxW = constraints.maxWidth;
-              final sumNow = widths.values.fold<double>(0, (a, b) => a + b);
-              final extra = maxW - sumNow;
-              if (extra > 0) {
-                final growable =
-                    columns.where((c) => !_userWidths.containsKey(c.field) && (weights[c.field] ?? 0) > 0).toList();
-                final totalWeight = growable.fold<double>(0.0, (a, c) => a + (weights[c.field] ?? 0));
-                if (totalWeight > 0) {
-                  for (final c in growable) {
-                    widths[c.field] = widths[c.field]! + extra * ((weights[c.field] ?? 0) / totalWeight);
-                  }
-                } else {
-                  widths[columns.last.field] = widths[columns.last.field]! + extra;
-                }
-              }
-            }
+            // Use the column manager to calculate widths
+            final widths = _columnManager?.calculateWidths(constraints) ?? {};
 
             final gridColumns =
                 columns

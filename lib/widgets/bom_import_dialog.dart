@@ -1,10 +1,9 @@
 // lib/widgets/bom_import_dialog.dart
-import 'dart:convert';
-import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:csv/csv.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../constants/firestore_constants.dart';
+import '../services/csv_parser_service.dart';
+import '../services/inventory_matcher.dart';
 
 class BomImportDialog extends StatefulWidget {
   const BomImportDialog({super.key});
@@ -34,18 +33,19 @@ class _BomImportDialogState extends State<BomImportDialog> {
     });
 
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'tsv']);
+      final parseResult = await CsvParserService.parseFromFile(
+        expectedColumns: ['Reference', 'Quantity', 'Value', 'Footprint'],
+      );
 
-      if (result == null || result.files.single.path == null) {
-        setState(() => _isLoading = false);
+      if (!parseResult.success) {
+        setState(() {
+          _error = parseResult.error ?? 'Failed to parse CSV';
+          _isLoading = false;
+        });
         return;
       }
 
-      final file = File(result.files.single.path!);
-      final input = file.openRead().transform(utf8.decoder);
-      final rows = await input.transform(const CsvToListConverter(shouldParseNumbers: false)).toList();
-
-      if (rows.isEmpty) {
+      if (parseResult.dataRows.isEmpty) {
         setState(() {
           _error = 'CSV file is empty';
           _isLoading = false;
@@ -53,7 +53,7 @@ class _BomImportDialogState extends State<BomImportDialog> {
         return;
       }
 
-      await _parseBOM(rows);
+      await _parseBOMFromResult(parseResult);
     } catch (e) {
       setState(() {
         _error = 'Error reading CSV: $e';
@@ -78,11 +78,20 @@ class _BomImportDialogState extends State<BomImportDialog> {
         return;
       }
 
-      final hasTab = text.contains('\t');
-      final converter = CsvToListConverter(eol: '\n', fieldDelimiter: hasTab ? '\t' : ',', shouldParseNumbers: false);
+      final parseResult = CsvParserService.parse(
+        text,
+        expectedColumns: ['Reference', 'Quantity', 'Value', 'Footprint'],
+      );
 
-      final rows = converter.convert(text);
-      if (rows.isEmpty) {
+      if (!parseResult.success) {
+        setState(() {
+          _error = parseResult.error ?? 'Failed to parse data';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      if (parseResult.dataRows.isEmpty) {
         setState(() {
           _error = 'No data found in pasted text';
           _isLoading = false;
@@ -90,7 +99,7 @@ class _BomImportDialogState extends State<BomImportDialog> {
         return;
       }
 
-      await _parseBOM(rows);
+      await _parseBOMFromResult(parseResult);
       setState(() => _showPasteMode = false);
     } catch (e) {
       setState(() {
@@ -128,17 +137,11 @@ class _BomImportDialogState extends State<BomImportDialog> {
     return s;
   }
 
-  Future<void> _parseBOM(List<List> rows) async {
-    final headers = rows.first.map((e) => e.toString().trim().toLowerCase()).toList();
+  Future<void> _parseBOMFromResult(CsvParseResult parseResult) async {
     final parsed = <Map<String, dynamic>>[];
 
-    // Find column indices (KiCad typical format)
-    final refIdx = headers.indexWhere((h) => h.contains('ref') || h.contains('designator'));
-    final qtyIdx = headers.indexWhere((h) => h.contains('qty') || h.contains('quantity'));
-    final valueIdx = headers.indexWhere((h) => h.contains('val') && !h.contains('eval'));
-    final footprintIdx = headers.indexWhere((h) => h.contains('footprint') || h.contains('package'));
-
-    if (refIdx == -1 || qtyIdx == -1) {
+    // Check for required columns
+    if (!parseResult.hasColumn('Reference') || !parseResult.hasColumn('Quantity')) {
       setState(() {
         _error = 'Could not find Reference and Quantity columns';
         _isLoading = false;
@@ -146,15 +149,13 @@ class _BomImportDialogState extends State<BomImportDialog> {
       return;
     }
 
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      if (row.length <= refIdx || row.length <= qtyIdx) continue;
-
-      final designators = row[refIdx].toString().trim();
-      final qty = int.tryParse(row[qtyIdx].toString()) ?? 1;
-      final value = valueIdx >= 0 && row.length > valueIdx ? _normalizeValue(row[valueIdx].toString()) : '';
-      final footprint = footprintIdx >= 0 && row.length > footprintIdx ? row[footprintIdx].toString().trim() : '';
-      final partNum = valueIdx >= 0 && row.length > valueIdx ? row[valueIdx].toString().trim() : '';
+    for (final row in parseResult.dataRows) {
+      final designators = parseResult.getCellValue(row, 'Reference');
+      final qty = int.tryParse(parseResult.getCellValue(row, 'Quantity')) ?? 1;
+      final valueRaw = parseResult.getCellValue(row, 'Value');
+      final value = _normalizeValue(valueRaw);
+      final footprint = parseResult.getCellValue(row, 'Footprint');
+      final partNum = valueRaw.trim();
 
       if (designators.isEmpty) continue;
 
@@ -210,68 +211,48 @@ class _BomImportDialogState extends State<BomImportDialog> {
     });
 
     // Auto-match with inventory
-    await _matchInventory();
+    await _matchInventoryWithService();
   }
 
-  Future<void> _matchInventory() async {
+  Future<void> _matchInventoryWithService() async {
     if (_parsedBom == null) return;
 
     setState(() => _isMatching = true);
 
     try {
-      final inventory = await FirebaseFirestore.instance.collection('inventory').get();
+      final inventory = await FirebaseFirestore.instance.collection(FirestoreCollections.inventory).get();
 
       for (final line in _parsedBom!) {
         final attrs = line['required_attributes'] as Map<String, dynamic>;
-        final partNum = attrs['part_#']?.toString() ?? '';
-        final value = attrs['value']?.toString() ?? '';
-        final size = attrs['size']?.toString() ?? '';
-        final partType = attrs['part_type']?.toString() ?? '';
 
-        // Find matches
-        List<QueryDocumentSnapshot> matches = [];
-
-        if (partNum.isNotEmpty) {
-          // Match by part number (most specific)
-          matches =
-              inventory.docs.where((doc) {
-                final data = doc.data();
-                return partNum.contains(data['part_#']?.toString() ?? '');
-              }).toList();
-        } else if (partType == 'capacitor' || partType == 'resistor' || partType == 'inductor' || partType == 'diode') {
-          // Match passives by type + value + size
-          matches =
-              inventory.docs.where((doc) {
-                final data = doc.data();
-                return data['type']?.toString() == partType &&
-                    data['value']?.toString() == value &&
-                    data['package']?.toString() == size;
-              }).toList();
-        }
+        // Use InventoryMatcher service for consistent matching
+        final matches = await InventoryMatcher.findMatches(
+          bomAttributes: attrs,
+          inventorySnapshot: inventory,
+        );
 
         if (matches.isEmpty) {
           line['match_status'] = 'missing';
         } else if (matches.length == 1) {
           line['match_status'] = 'matched';
+          final matchData = matches.first.data();
           line['inventory_match'] = {
             'doc_id': matches.first.id,
-            'part_#': (matches.first.data() as Map<String, dynamic>)['part_#'],
-            'available_qty': (matches.first.data() as Map<String, dynamic>)['qty'],
+            'part_#': matchData[FirestoreFields.partNumber],
+            'available_qty': matchData[FirestoreFields.qty],
           };
-          attrs['selected_component_ref'] = matches.first.id;
+          attrs[FirestoreFields.selectedComponentRef] = matches.first.id;
         } else {
           line['match_status'] = 'multiple';
-          line['inventory_matches'] =
-              matches
-                  .map(
-                    (m) => {
-                      'doc_id': m.id,
-                      'part_#': (m.data() as Map<String, dynamic>)['part_#'],
-                      'description': (m.data() as Map<String, dynamic>)['description'],
-                      'available_qty': (m.data() as Map<String, dynamic>)['qty'],
-                    },
-                  )
-                  .toList();
+          line['inventory_matches'] = matches.map((m) {
+            final data = m.data();
+            return {
+              'doc_id': m.id,
+              'part_#': data[FirestoreFields.partNumber],
+              'description': data[FirestoreFields.description],
+              'available_qty': data[FirestoreFields.qty],
+            };
+          }).toList();
         }
       }
 
@@ -286,16 +267,17 @@ class _BomImportDialogState extends State<BomImportDialog> {
 
   Future<void> _resolveMatch(int lineIndex, String docId) async {
     final line = _parsedBom![lineIndex];
-    final doc = await FirebaseFirestore.instance.collection('inventory').doc(docId).get();
+    final doc = await FirebaseFirestore.instance.collection(FirestoreCollections.inventory).doc(docId).get();
+    final data = doc.data()!;
 
     setState(() {
       line['match_status'] = 'matched';
       line['inventory_match'] = {
         'doc_id': doc.id,
-        'part_#': doc.data()!['part_#'],
-        'available_qty': doc.data()!['qty'],
+        'part_#': data[FirestoreFields.partNumber],
+        'available_qty': data[FirestoreFields.qty],
       };
-      line['required_attributes']['selected_component_ref'] = doc.id;
+      line['required_attributes'][FirestoreFields.selectedComponentRef] = doc.id;
       line.remove('inventory_matches');
     });
   }

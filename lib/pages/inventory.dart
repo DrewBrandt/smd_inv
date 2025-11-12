@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:smd_inv/widgets/unified_inventory_grid.dart';
 import 'package:smd_inv/widgets/manual_add_dialog.dart';
 import 'package:smd_inv/widgets/csv_import_dialog.dart';
+import '../constants/firestore_constants.dart';
 
 class FullList extends StatefulWidget {
   const FullList({super.key});
@@ -33,7 +34,7 @@ class _FullListState extends State<FullList> {
 
   Future<void> _loadFilterOptions() async {
     // Get unique values for filters
-    final snapshot = await FirebaseFirestore.instance.collection('inventory').get();
+    final snapshot = await FirebaseFirestore.instance.collection(FirestoreCollections.inventory).get();
 
     final types = <String>{};
     final packages = <String>{};
@@ -41,12 +42,12 @@ class _FullListState extends State<FullList> {
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
-      if (data['type'] != null) types.add(data['type'].toString());
-      if (data['package'] != null && data['package'].toString().isNotEmpty) {
-        packages.add(data['package'].toString());
+      if (data[FirestoreFields.type] != null) types.add(data[FirestoreFields.type].toString());
+      if (data[FirestoreFields.package] != null && data[FirestoreFields.package].toString().isNotEmpty) {
+        packages.add(data[FirestoreFields.package].toString());
       }
-      if (data['location'] != null && data['location'].toString().isNotEmpty) {
-        locations.add(data['location'].toString());
+      if (data[FirestoreFields.location] != null && data[FirestoreFields.location].toString().isNotEmpty) {
+        locations.add(data[FirestoreFields.location].toString());
       }
     }
 
