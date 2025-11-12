@@ -1,11 +1,9 @@
 // lib/widgets/csv_import_dialog.dart
-import 'dart:convert';
-import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:csv/csv.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:smd_inv/constants/firestore_constants.dart';
 import 'package:smd_inv/models/columns.dart';
+import 'package:smd_inv/services/csv_parser_service.dart';
 import 'package:smd_inv/widgets/collection_datagrid.dart';
 
 class CSVImportDialog extends StatefulWidget {
@@ -33,18 +31,20 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     });
 
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'tsv']);
+      // Use CsvParserService for consistent parsing
+      final parseResult = await CsvParserService.parseFromFile(
+        expectedColumns: ['Item', 'Quantity', 'Link', 'Notes', 'Price Per Unit'],
+      );
 
-      if (result == null || result.files.single.path == null) {
-        setState(() => _isLoading = false);
+      if (!parseResult.success) {
+        setState(() {
+          _error = parseResult.error ?? 'Failed to parse CSV';
+          _isLoading = false;
+        });
         return;
       }
 
-      final file = File(result.files.single.path!);
-      final input = file.openRead().transform(utf8.decoder);
-      final rows = await input.transform(const CsvToListConverter(shouldParseNumbers: false)).toList();
-
-      if (rows.isEmpty) {
+      if (parseResult.dataRows.isEmpty) {
         setState(() {
           _error = 'CSV file is empty';
           _isLoading = false;
@@ -52,9 +52,15 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
         return;
       }
 
-      final parsed = _parseCSV(rows);
+      // Convert parsed rows to inventory items
+      final items = <Map<String, dynamic>>[];
+      for (final row in parseResult.dataRows) {
+        final item = _parseItemFromParsedRow(parseResult, row);
+        if (item != null) items.add(item);
+      }
+
       setState(() {
-        _parsedRows = parsed;
+        _parsedRows = items;
         _isLoading = false;
       });
     } catch (e) {
@@ -65,40 +71,38 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     }
   }
 
-  List<Map<String, dynamic>> _parseCSV(List<List> rows) {
-    final headers = rows.first.map((e) => e.toString().trim()).toList();
-    final parsed = <Map<String, dynamic>>[];
-
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      final csvData = <String, dynamic>{
-        for (var j = 0; j < headers.length && j < row.length; j++) headers[j]: row[j].toString().trim(),
-      };
-
-      // Parse into inventory format
-      final item = _parseItemFromCSV(csvData);
-      if (item != null) parsed.add(item);
-    }
-
-    return parsed;
-  }
-
-  Map<String, dynamic>? _parseItemFromCSV(Map<String, dynamic> csvRow) {
-    final itemName = csvRow['Item']?.toString() ?? '';
+  /// Parse a single row from CsvParseResult into inventory item format
+  Map<String, dynamic>? _parseItemFromParsedRow(
+    CsvParseResult parseResult,
+    List<dynamic> row,
+  ) {
+    final itemName = parseResult.getCellValue(row, 'Item');
     if (itemName.isEmpty) return null;
 
-    final qty = int.tryParse(csvRow['Quantity']?.toString() ?? '0') ?? 0;
-    final link = csvRow['Link']?.toString() ?? '';
-    final notes = csvRow['Notes']?.toString() ?? '';
+    final qty = int.tryParse(parseResult.getCellValue(row, 'Quantity')) ?? 0;
+    final link = parseResult.getCellValue(row, 'Link');
+    final notes = parseResult.getCellValue(row, 'Notes');
 
     // Parse price
-    final priceStr = csvRow['Price Per Unit']?.toString() ?? '';
+    final priceStr = parseResult.getCellValue(row, 'Price Per Unit');
     double? pricePerUnit;
     if (priceStr.isNotEmpty) {
       // Remove $ and parse
       final cleaned = priceStr.replaceAll(RegExp(r'[^\d.]'), '');
       pricePerUnit = double.tryParse(cleaned);
     }
+
+    return _buildInventoryItem(itemName, qty, link, notes, pricePerUnit);
+  }
+
+  /// Build inventory item map from parsed CSV data
+  Map<String, dynamic> _buildInventoryItem(
+    String itemName,
+    int qty,
+    String link,
+    String notes,
+    double? pricePerUnit,
+  ) {
 
     // Extract part# from DigiKey URL
     String partNumber = '';
@@ -231,8 +235,11 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
           continue;
         }
 
-        final existing =
-            await FirebaseFirestore.instance.collection('inventory').where('part_#', isEqualTo: partNum).limit(1).get();
+        final existing = await FirebaseFirestore.instance
+            .collection(FirestoreCollections.inventory)
+            .where(FirestoreFields.partNumber, isEqualTo: partNum)
+            .limit(1)
+            .get();
 
         if (existing.docs.isNotEmpty) {
           // Duplicate found - ask user
@@ -260,9 +267,11 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
           // 'skip' falls through to skipped++
         } else {
           // New item
-          await FirebaseFirestore.instance.collection('inventory').add({
+          await FirebaseFirestore.instance
+              .collection(FirestoreCollections.inventory)
+              .add({
             ...row,
-            'last_updated': FieldValue.serverTimestamp(),
+            FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
           });
           imported++;
         }
@@ -331,12 +340,21 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
         return;
       }
 
-      // Detect delimiter (tab or comma)
-      final hasTab = text.contains('\t');
-      final converter = CsvToListConverter(eol: '\n', fieldDelimiter: hasTab ? '\t' : ',', shouldParseNumbers: false);
+      // Use CsvParserService for consistent parsing
+      final parseResult = CsvParserService.parse(
+        text,
+        expectedColumns: ['Item', 'Quantity', 'Link', 'Notes', 'Price Per Unit'],
+      );
 
-      final rows = converter.convert(text);
-      if (rows.isEmpty) {
+      if (!parseResult.success) {
+        setState(() {
+          _error = parseResult.error ?? 'Failed to parse data';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      if (parseResult.dataRows.isEmpty) {
         setState(() {
           _error = 'No data found in pasted text';
           _isLoading = false;
@@ -344,9 +362,15 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
         return;
       }
 
-      final parsed = _parseCSV(rows);
+      // Convert parsed rows to inventory items
+      final items = <Map<String, dynamic>>[];
+      for (final row in parseResult.dataRows) {
+        final item = _parseItemFromParsedRow(parseResult, row);
+        if (item != null) items.add(item);
+      }
+
       setState(() {
-        _parsedRows = parsed;
+        _parsedRows = items;
         _isLoading = false;
         _showPasteMode = false;
       });
