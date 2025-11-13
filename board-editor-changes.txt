@@ -1,0 +1,24 @@
+Board:
+    Upload BOM
+        - Parse CSV
+        - Match Inventory
+    Add Line
+        - Match Inventory
+    Refresh
+        - Match all Inventory
+        - Manual vs auto-linked 
+            - locking mechanism to avoid overwritng manually selected component refs?
+            - Unlock automatically on out-of-stock
+            - upon refresh, remeber which it used to be to automatcially resolve ambiguitiy to previously selected component
+    Grid
+        - Status symbol (green (ok)/yellow (ambiguous)/red (no match)?)
+            - Lock icon incorporated? 
+            - Needs an "Icon" column for the Grid
+        - Refrence # Column
+            - Upon editing, opens up a search box with dropdown, prefilled with required parts
+            - Does not lock part selection to what the BOM requests (i.e. allows caps to be placed where resistors are called for, maybe with warning.) 
+            - Search result list should show type, footprint, value, stock, and location.
+        Bulk editing ability?
+            - Drag select?
+            - Cpoy/paste?
+            - low prio     

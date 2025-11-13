@@ -7,7 +7,7 @@ import 'package:syncfusion_flutter_core/theme.dart';
 
 import '../data/firebase_datagrid_source.dart';
 import '../data/list_map_source.dart';
-import '../data/unified_firestore_streams.dart';
+import '../data/inventory_repo.dart';
 import '../models/columns.dart';
 import '../services/datagrid_column_manager.dart';
 
@@ -163,6 +163,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
   DataGridColumnManager? _columnManager;
   bool _prefsLoaded = false;
+  final _inventoryRepo = InventoryRepo();
 
   @override
   void initState() {
@@ -411,7 +412,11 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
     // ── Mode 2: Inventory stream with advanced filtering ──
     if (widget.useInventoryStream) {
       return StreamBuilder<List<Doc>>(
-        stream: inventoryStream(typeFilter: null), // Get all, filter locally
+        stream: _inventoryRepo.streamFiltered(
+          typeFilter: widget.typeFilter,
+          packageFilter: widget.packageFilter,
+          locationFilter: widget.locationFilter,
+        ),
         builder: (context, snap) {
           if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
           if (snap.connectionState == ConnectionState.waiting || !snap.hasData || !_prefsLoaded) {
@@ -432,7 +437,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
     // ── Mode 3: Generic Firestore collection ──
     return StreamBuilder<List<Doc>>(
-      stream: collectionStream(widget.collection!),
+      stream: _inventoryRepo.streamCollection(widget.collection!),
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
         if (snap.connectionState == ConnectionState.waiting || !snap.hasData || !_prefsLoaded) {

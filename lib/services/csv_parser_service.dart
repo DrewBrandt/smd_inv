@@ -19,15 +19,23 @@ class CsvParserService {
       return CsvParseResult.error('Empty input');
     }
 
-    // Auto-detect delimiter (tab vs comma)
+    // Normalize line endings to \n (handle \r\n and \r)
+    final normalizedText = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+    // Auto-detect delimiter (tab vs comma vs semicolon)
     String delimiter = ',';
     if (autoDetectDelimiter) {
-      final lines = text.split('\n');
+      final lines = normalizedText.split('\n');
       if (lines.isNotEmpty) {
         final firstLine = lines.first;
         final commaCount = ','.allMatches(firstLine).length;
         final tabCount = '\t'.allMatches(firstLine).length;
-        if (tabCount > commaCount) {
+        final semicolonCount = ';'.allMatches(firstLine).length;
+
+        // Choose the most common delimiter
+        if (semicolonCount > commaCount && semicolonCount > tabCount) {
+          delimiter = ';';
+        } else if (tabCount > commaCount) {
           delimiter = '\t';
         }
       }
@@ -42,7 +50,7 @@ class CsvParserService {
 
     List<List<dynamic>> rows;
     try {
-      rows = converter.convert(text);
+      rows = converter.convert(normalizedText);
     } catch (e) {
       return CsvParseResult.error('Failed to parse: $e');
     }

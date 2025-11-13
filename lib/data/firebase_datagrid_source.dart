@@ -54,6 +54,11 @@ class FirestoreDataSource extends BaseDataGridSource {
     setNestedMapValue(doc.data(), path, parsedValue);
   }
 
+  @override
+  Map<String, dynamic> getRowData(int rowIndex) {
+    return _docs[rowIndex].data();
+  }
+
   /// Format type field: IC stays caps, others capitalize first letter
   String _formatType(String type) {
     final lower = type.toLowerCase();

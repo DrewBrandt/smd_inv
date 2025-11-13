@@ -40,4 +40,9 @@ class ListMapDataSource extends BaseDataGridSource {
     // Trigger the callback to update the parent widget's state
     onCommit(rowIndex, path, parsedValue);
   }
+
+  @override
+  Map<String, dynamic> getRowData(int rowIndex) {
+    return _rowsData[rowIndex];
+  }
 }

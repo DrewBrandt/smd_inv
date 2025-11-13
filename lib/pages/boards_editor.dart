@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:smd_inv/widgets/boards_editor/frontmatter.dart';
-import 'package:smd_inv/widgets/bom_import_dialog.dart';
+import 'package:smd_inv/widgets/bom_import_widget.dart';
 import '../models/board.dart';
 import 'package:smd_inv/widgets/unified_data_grid.dart';
 import '../models/columns.dart';
@@ -23,6 +23,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
   bool _saving = false;
   bool _dirty = false;
   bool _isMatching = false;
+  bool _showingImport = false;
 
   final _name = TextEditingController();
   final _desc = TextEditingController();
@@ -123,10 +124,10 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
     if (ok == true && mounted) context.go('/boards');
   }
 
-  Future<void> _importBOM() async {
+  void _startImportBOM() {
     // Warn if replacing existing BOM
     if (_bom.isNotEmpty) {
-      final confirm = await showDialog<bool>(
+      showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Replace BOM?'),
@@ -140,34 +141,34 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: () {
+                Navigator.pop(ctx, true);
+                setState(() => _showingImport = true);
+              },
               style: FilledButton.styleFrom(backgroundColor: Colors.orange),
               child: const Text('Replace'),
             ),
           ],
         ),
       );
-      if (confirm != true) return;
+    } else {
+      setState(() => _showingImport = true);
     }
+  }
 
-    if (!mounted) return;
+  void _cancelImport() {
+    setState(() => _showingImport = false);
+  }
 
-    final imported = await showDialog<List<Map<String, dynamic>>>(
-      context: context,
-      builder: (ctx) => const BomImportDialog(),
+  void _completeImport(List<Map<String, dynamic>> imported) {
+    setState(() {
+      _bom = imported;
+      _showingImport = false;
+      _dirty = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('✅ Imported ${imported.length} BOM lines')),
     );
-
-    if (imported != null && imported.isNotEmpty && mounted) {
-      setState(() {
-        _bom = imported; // REPLACE instead of addAll
-        _markDirty();
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ Replaced BOM with ${imported.length} lines')),
-        );
-      }
-    }
   }
 
   Future<void> _refreshMatching() async {
@@ -247,13 +248,48 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
 
 
   List<ColumnSpec> get _bomColumns => [
-    ColumnSpec(field: 'selected_component_ref', label: 'Component Ref'),
+    ColumnSpec(
+      field: 'required_attributes.selected_component_ref',
+      label: 'Component',
+      kind: CellKind.dropdown,
+      dropdownOptionsProvider: (rowData) async {
+        // Return ALL inventory items for manual search/selection
+        if (_inventoryCache == null) {
+          await _loadInventoryCache();
+        }
+
+        if (_inventoryCache == null || _inventoryCache!.docs.isEmpty) {
+          return [];
+        }
+
+        // Convert all inventory to dropdown options
+        return _inventoryCache!.docs.map((doc) {
+          final data = doc.data();
+          final partNum = data['part_#']?.toString() ?? '';
+          final type = data['type']?.toString() ?? '';
+          final value = data['value']?.toString() ?? '';
+          final pkg = data['package']?.toString() ?? '';
+          final qty = data['qty']?.toString() ?? '';
+          final location = data['location']?.toString() ?? '';
+
+          // Return all fields for rich display in dropdown
+          return {
+            'id': doc.id,
+            'part_#': partNum,
+            'type': type,
+            'value': value,
+            'package': pkg,
+            'qty': qty,
+            'location': location,
+          };
+        }).toList();
+      },
+    ),
     ColumnSpec(field: 'designators', label: 'Designators'),
     ColumnSpec(field: 'qty', label: 'Qty', kind: CellKind.integer),
     ColumnSpec(field: 'required_attributes.part_type', label: 'Type', capitalize: true),
     ColumnSpec(field: 'required_attributes.value', label: 'Value'),
     ColumnSpec(field: 'required_attributes.size', label: 'Package'),
-    ColumnSpec(field: 'required_attributes.part_#', label: 'Part #'),
     ColumnSpec(field: 'description', label: 'Description'),
     ColumnSpec(field: 'notes', label: 'Notes'),
   ];
@@ -341,7 +377,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                           const SizedBox(width: 8),
                         ],
                         FilledButton.icon(
-                          onPressed: _isMatching ? null : _importBOM,
+                          onPressed: _isMatching || _showingImport ? null : _startImportBOM,
                           icon: const Icon(Icons.upload_file),
                           label: Text(_bom.isEmpty ? 'Import BOM' : 'Replace BOM'),
                         ),
@@ -355,8 +391,16 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Unified BOM Grid
-                    if (_bom.isEmpty)
+                    // BOM Grid or Import Widget
+                    if (_showingImport)
+                      SizedBox(
+                        height: 500,
+                        child: BomImportWidget(
+                          onCancel: _cancelImport,
+                          onImport: _completeImport,
+                        ),
+                      )
+                    else if (_bom.isEmpty)
                       Center(
                         child: Padding(
                           padding: const EdgeInsets.all(48),

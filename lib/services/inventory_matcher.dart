@@ -9,8 +9,8 @@ class InventoryMatcher {
   ///
   /// Strategy priority:
   /// 1. Exact match by selected_component_ref (if provided)
-  /// 2. Exact match by part number
-  /// 3. Match passives (R/L/C) by type + value + package
+  /// 2. For ICs/connectors: match by part number (using value field from BOM)
+  /// 3. For passives (R/L/C/D/LED): match by type + value + package
   ///
   /// Returns list of matching documents (empty if no match)
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> findMatches({
@@ -47,22 +47,23 @@ class InventoryMatcher {
       }
     }
 
-    // Strategy 2: Match by part number (exact)
-    final partNum = bomAttributes['part_#']?.toString() ?? '';
-    if (partNum.isNotEmpty) {
+    // Strategy 2: Match by value (for ICs/connectors, value IS the part number)
+    final partType = bomAttributes['part_type']?.toString().toLowerCase() ?? '';
+    final value = bomAttributes['value']?.toString() ?? '';
+    final size = bomAttributes['size']?.toString() ?? '';
+
+    // For non-passives, match by part number using the value field
+    if (value.isNotEmpty && !_isPassive(partType)) {
       final matches = inventory.docs.where((doc) {
         final data = doc.data();
         return data['part_#']?.toString().trim().toLowerCase() ==
-            partNum.trim().toLowerCase();
+            value.trim().toLowerCase();
       }).toList();
 
       if (matches.isNotEmpty) return matches;
     }
 
     // Strategy 3: Match passives by type + value + package
-    final partType = bomAttributes['part_type']?.toString().toLowerCase() ?? '';
-    final value = bomAttributes['value']?.toString() ?? '';
-    final size = bomAttributes['size']?.toString() ?? '';
 
     if (_isPassive(partType) && value.isNotEmpty && size.isNotEmpty) {
       final matches = inventory.docs.where((doc) {
@@ -97,12 +98,14 @@ class InventoryMatcher {
     return matches.length == 1 ? matches.first : null;
   }
 
-  /// Check if part type is a passive component (R/L/C)
+  /// Check if part type is a passive component (R/L/C/D/LED)
   static bool _isPassive(String partType) {
     final type = partType.toLowerCase();
     return type == 'capacitor' ||
         type == 'resistor' ||
-        type == 'inductor';
+        type == 'inductor' ||
+        type == 'diode' ||
+        type == 'led';
   }
 
   /// Get match result with metadata
@@ -130,18 +133,13 @@ class InventoryMatcher {
   static String makePartLabel(Map<String, dynamic> attrs) {
     final parts = <String>[];
 
-    final partNum = attrs['part_#']?.toString() ?? '';
-    if (partNum.isNotEmpty) {
-      parts.add(partNum);
-    } else {
-      final partType = attrs['part_type']?.toString() ?? '';
-      final value = attrs['value']?.toString() ?? '';
-      final size = attrs['size']?.toString() ?? '';
+    final partType = attrs['part_type']?.toString() ?? '';
+    final value = attrs['value']?.toString() ?? '';
+    final size = attrs['size']?.toString() ?? '';
 
-      if (partType.isNotEmpty) parts.add(partType);
-      if (value.isNotEmpty) parts.add(value);
-      if (size.isNotEmpty) parts.add(size);
-    }
+    if (partType.isNotEmpty) parts.add(partType);
+    if (value.isNotEmpty) parts.add(value);
+    if (size.isNotEmpty) parts.add(size);
 
     return parts.isEmpty ? 'Unknown part' : parts.join(' ');
   }

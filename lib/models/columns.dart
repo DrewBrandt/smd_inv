@@ -1,6 +1,6 @@
 // lib/models/columns.dart
 
-enum CellKind { text, integer, decimal, url }
+enum CellKind { text, integer, decimal, url, dropdown }
 
 /// Human-readable labels for common field names
 const Map<String, String> kAttrLabel = {
@@ -32,6 +32,10 @@ class ColumnSpec {
   final bool capitalize; // only affects display for text
   final int maxPercentWidth; // max width as % of table width
 
+  /// For dropdown cells: function to provide dropdown options
+  /// Returns list of {id, label} maps
+  final Future<List<Map<String, String>>> Function(Map<String, dynamic> rowData)? dropdownOptionsProvider;
+
   ColumnSpec({
     required this.field,
     this.editable = true,
@@ -39,6 +43,7 @@ class ColumnSpec {
     this.capitalize = false,
     this.maxPercentWidth = 30,
     this.label = '',
+    this.dropdownOptionsProvider,
   }) {
     if (label.isEmpty) {
       label = attrLabel(field);

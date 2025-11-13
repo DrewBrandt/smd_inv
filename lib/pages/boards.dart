@@ -2,7 +2,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:smd_inv/data/unified_firestore_streams.dart';
+import 'package:smd_inv/data/inventory_repo.dart';
 import 'package:smd_inv/models/board.dart';
 import 'package:smd_inv/models/readiness.dart';
 import 'package:smd_inv/widgets/board_card.dart';
@@ -18,9 +18,10 @@ class BoardsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repo = BoardsRepo();
+    final inventoryRepo = InventoryRepo();
 
     return StreamBuilder<List<Doc>>(
-      stream: collectionStream(FirestoreCollections.boards),
+      stream: inventoryRepo.streamCollection(FirestoreCollections.boards),
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
