@@ -3,60 +3,63 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/firestore_constants.dart';
 
 class BomLine {
+  String designators;
   int qty;
   String? category;
+  String? description;
   Map<String, dynamic> requiredAttributes;
-  DocumentReference<Map<String, dynamic>>? selectedComponentRef;
   String? notes;
+  bool ignored;
 
   BomLine({
+    required this.designators,
     required this.qty,
     this.category,
+    this.description,
     required this.requiredAttributes,
-    this.selectedComponentRef,
     this.notes,
+    this.ignored = false,
   });
 
-  factory BomLine.fromMap(Map<String, dynamic> m, FirebaseFirestore db) {
-    DocumentReference<Map<String, dynamic>>? ref;
-    final rawRef = m[FirestoreFields.selectedComponentRef];
-    if (rawRef is DocumentReference) {
-      ref = rawRef.withConverter<Map<String, dynamic>>(
-        fromFirestore: (s, _) => s.data() ?? {},
-        toFirestore: (v, _) => v,
-      );
-    } else if (rawRef is String && rawRef.isNotEmpty) {
-      // if stored as path string
-      try {
-        ref = db
-            .doc(rawRef)
-            .withConverter<Map<String, dynamic>>(
-              fromFirestore: (s, _) => s.data() ?? {},
-              toFirestore: (v, _) => v,
-            );
-      } catch (e) {
-        // invalid path string
-      }
-    }
+  factory BomLine.fromMap(Map<String, dynamic> m) {
+    final required = Map<String, dynamic>.from(
+      m[FirestoreFields.requiredAttributes] ?? const {},
+    );
 
     return BomLine(
-      qty: (m[FirestoreFields.qty] ?? 0) as int,
+      designators: m['designators'] as String? ?? '?',
+      qty: _toInt(m[FirestoreFields.qty]),
       category: m[FirestoreFields.category] as String?,
-      requiredAttributes: Map<String, dynamic>.from(
-        m[FirestoreFields.requiredAttributes] ?? const {},
-      ),
-      selectedComponentRef: ref,
+      description: m['description'] as String?,
+      requiredAttributes: required,
       notes: m[FirestoreFields.notes] as String?,
+      ignored: m['_ignored'] as bool? ?? false,
     );
   }
 
   Map<String, dynamic> toMap() => {
+    'designators': designators,
     FirestoreFields.qty: qty,
     if (category != null) FirestoreFields.category: category,
+    if (description != null && description!.isNotEmpty)
+      'description': description,
     FirestoreFields.requiredAttributes: requiredAttributes,
-    FirestoreFields.selectedComponentRef: selectedComponentRef,
     if (notes != null) FirestoreFields.notes: notes,
+    '_ignored': ignored,
   };
+
+  String? get selectedComponentRef {
+    final raw = requiredAttributes[FirestoreFields.selectedComponentRef];
+    if (raw == null) return null;
+    final s = raw.toString().trim();
+    return s.isEmpty ? null : s;
+  }
+
+  static int _toInt(dynamic raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '') ?? 0;
+  }
 }
 
 class BoardDoc {
@@ -80,7 +83,6 @@ class BoardDoc {
 
   factory BoardDoc.fromSnap(DocumentSnapshot<Map<String, dynamic>> snap) {
     final m = snap.data() ?? {};
-    final db = snap.reference.firestore;
     final bomRaw = (m[FirestoreFields.bom] as List?) ?? const [];
     return BoardDoc(
       id: snap.id,
@@ -91,9 +93,7 @@ class BoardDoc {
       imageUrl: m[FirestoreFields.imageUrl] as String?,
       bom:
           bomRaw
-              .map(
-                (e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map), db),
-              )
+              .map((e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map)))
               .toList(),
     );
   }

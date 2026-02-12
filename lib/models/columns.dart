@@ -1,6 +1,6 @@
 // lib/models/columns.dart
 
-enum CellKind { text, integer, decimal, url, dropdown }
+enum CellKind { text, integer, decimal, url, dropdown, checkbox }
 
 /// Human-readable labels for common field names
 const Map<String, String> kAttrLabel = {
@@ -34,7 +34,10 @@ class ColumnSpec {
 
   /// For dropdown cells: function to provide dropdown options
   /// Returns list of {id, label} maps
-  final Future<List<Map<String, String>>> Function(Map<String, dynamic> rowData)? dropdownOptionsProvider;
+  final Future<List<Map<String, String>>> Function(
+    Map<String, dynamic> rowData,
+  )?
+  dropdownOptionsProvider;
 
   ColumnSpec({
     required this.field,

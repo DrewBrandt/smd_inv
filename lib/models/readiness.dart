@@ -5,7 +5,12 @@ class Readiness {
   final List<Shortfall> shortfalls;
   final double? totalCost;
 
-  const Readiness({required this.buildableQty, required this.readyPct, required this.shortfalls, this.totalCost});
+  const Readiness({
+    required this.buildableQty,
+    required this.readyPct,
+    required this.shortfalls,
+    this.totalCost,
+  });
 }
 
 class Shortfall {

@@ -5,9 +5,13 @@ typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
 /// Repository for inventory operations with centralized stream and filtering logic
 class InventoryRepo {
-  final _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db;
 
-  CollectionReference<Map<String, dynamic>> get _col => _db.collection(FirestoreCollections.inventory);
+  InventoryRepo({FirebaseFirestore? firestore})
+    : _db = firestore ?? FirebaseFirestore.instance;
+
+  CollectionReference<Map<String, dynamic>> get _col =>
+      _db.collection(FirestoreCollections.inventory);
 
   /// Stream all inventory items with optional type filtering
   /// Type filtering is applied at the query level for better performance
@@ -16,11 +20,11 @@ class InventoryRepo {
 
     // Apply type filter if provided
     if (typeFilter != null && typeFilter.isNotEmpty) {
-      query = query.where('type', whereIn: typeFilter);
+      query = query.where(FirestoreFields.type, whereIn: typeFilter);
     }
 
     // Simple ordering (no index needed)
-    query = query.orderBy('type');
+    query = query.orderBy(FirestoreFields.type);
 
     return query.snapshots().map((snap) => snap.docs);
   }
@@ -38,18 +42,20 @@ class InventoryRepo {
 
       // Apply package filter
       if (packageFilter != null && packageFilter.isNotEmpty) {
-        filtered = filtered.where((d) {
-          final pkg = d.data()['package']?.toString() ?? '';
-          return packageFilter.contains(pkg);
-        }).toList();
+        filtered =
+            filtered.where((d) {
+              final pkg = d.data()[FirestoreFields.package]?.toString() ?? '';
+              return packageFilter.contains(pkg);
+            }).toList();
       }
 
       // Apply location filter
       if (locationFilter != null && locationFilter.isNotEmpty) {
-        filtered = filtered.where((d) {
-          final loc = d.data()['location']?.toString() ?? '';
-          return locationFilter.contains(loc);
-        }).toList();
+        filtered =
+            filtered.where((d) {
+              final loc = d.data()[FirestoreFields.location]?.toString() ?? '';
+              return locationFilter.contains(loc);
+            }).toList();
       }
 
       return filtered;

@@ -36,6 +36,7 @@ class UnifiedDataGrid extends StatefulWidget {
   /// Option 3: Local list mode (no Firestore)
   final List<Map<String, dynamic>>? rows;
   final ValueChanged<List<Map<String, dynamic>>>? onRowsChanged;
+  final InventoryRepo? inventoryRepo;
 
   // ── Display Configuration ──
 
@@ -58,6 +59,9 @@ class UnifiedDataGrid extends StatefulWidget {
   /// Whether to enable row context menu (copy ID, delete)
   final bool enableRowMenu;
 
+  /// Whether cell editing is enabled.
+  final bool allowEditing;
+
   /// Number of frozen columns (defaults to 1)
   final int frozenColumnsCount;
 
@@ -68,19 +72,21 @@ class UnifiedDataGrid extends StatefulWidget {
     this.useInventoryStream = false,
     this.rows,
     this.onRowsChanged,
+    this.inventoryRepo,
     this.searchQuery = '',
     this.typeFilter,
     this.packageFilter,
     this.locationFilter,
     this.persistKey,
     this.enableRowMenu = true,
+    this.allowEditing = true,
     this.frozenColumnsCount = 1,
   }) : assert(
-          (collection != null && !useInventoryStream && rows == null) ||
-          (collection == null && useInventoryStream && rows == null) ||
-          (collection == null && !useInventoryStream && rows != null),
-          'Provide exactly ONE data source: collection, useInventoryStream=true, or rows',
-        );
+         (collection != null && !useInventoryStream && rows == null) ||
+             (collection == null && useInventoryStream && rows == null) ||
+             (collection == null && !useInventoryStream && rows != null),
+         'Provide exactly ONE data source: collection, useInventoryStream=true, or rows',
+       );
 
   /// Factory constructor for Firestore collections
   factory UnifiedDataGrid.collection({
@@ -90,6 +96,7 @@ class UnifiedDataGrid extends StatefulWidget {
     String searchQuery = '',
     String? persistKey,
     bool enableRowMenu = true,
+    bool allowEditing = true,
     int frozenColumnsCount = 1,
   }) {
     return UnifiedDataGrid(
@@ -99,6 +106,7 @@ class UnifiedDataGrid extends StatefulWidget {
       searchQuery: searchQuery,
       persistKey: persistKey,
       enableRowMenu: enableRowMenu,
+      allowEditing: allowEditing,
       frozenColumnsCount: frozenColumnsCount,
     );
   }
@@ -113,6 +121,7 @@ class UnifiedDataGrid extends StatefulWidget {
     List<String>? locationFilter,
     String? persistKey,
     bool enableRowMenu = true,
+    bool allowEditing = true,
     int frozenColumnsCount = 1,
   }) {
     return UnifiedDataGrid(
@@ -125,6 +134,7 @@ class UnifiedDataGrid extends StatefulWidget {
       locationFilter: locationFilter,
       persistKey: persistKey ?? 'inventory_unified',
       enableRowMenu: enableRowMenu,
+      allowEditing: allowEditing,
       frozenColumnsCount: frozenColumnsCount,
     );
   }
@@ -138,6 +148,7 @@ class UnifiedDataGrid extends StatefulWidget {
     String searchQuery = '',
     String? persistKey,
     bool enableRowMenu = false,
+    bool allowEditing = true,
     int frozenColumnsCount = 1,
   }) {
     return UnifiedDataGrid(
@@ -148,6 +159,7 @@ class UnifiedDataGrid extends StatefulWidget {
       searchQuery: searchQuery,
       persistKey: persistKey ?? 'local',
       enableRowMenu: enableRowMenu,
+      allowEditing: allowEditing,
       frozenColumnsCount: frozenColumnsCount,
     );
   }
@@ -163,22 +175,29 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
   DataGridColumnManager? _columnManager;
   bool _prefsLoaded = false;
-  final _inventoryRepo = InventoryRepo();
+  InventoryRepo? _inventoryRepo;
 
   @override
   void initState() {
     super.initState();
+    if (widget.rows == null) {
+      _inventoryRepo = widget.inventoryRepo ?? InventoryRepo();
+    }
     _initColumnManager();
   }
 
   Future<void> _initColumnManager() async {
-    final key = widget.persistKey ??
-                widget.collection ??
-                (widget.useInventoryStream ? 'inventory_unified' : 'local');
+    final key =
+        widget.persistKey ??
+        widget.collection ??
+        (widget.useInventoryStream ? 'inventory_unified' : 'local');
 
     _columnManager = DataGridColumnManager(
       persistKey: key,
-      columns: widget.columns.map((c) => GridColumnConfig(field: c.field, label: c.label)).toList(),
+      columns:
+          widget.columns
+              .map((c) => GridColumnConfig(field: c.field, label: c.label))
+              .toList(),
     );
     await _columnManager!.loadSavedWidths();
     setState(() => _prefsLoaded = true);
@@ -188,40 +207,23 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
   /// Filters documents for inventory stream mode
   List<Doc> _filterInventoryDocs(List<Doc> docs) {
-    var filtered = docs;
-
-    // Apply filter chips
-    if (widget.typeFilter != null && widget.typeFilter!.isNotEmpty) {
-      filtered = filtered.where((d) {
-        final type = d.data()['type']?.toString() ?? '';
-        return widget.typeFilter!.contains(type);
-      }).toList();
-    }
-
-    if (widget.packageFilter != null && widget.packageFilter!.isNotEmpty) {
-      filtered = filtered.where((d) {
-        final pkg = d.data()['package']?.toString() ?? '';
-        return widget.packageFilter!.contains(pkg);
-      }).toList();
-    }
-
-    if (widget.locationFilter != null && widget.locationFilter!.isNotEmpty) {
-      filtered = filtered.where((d) {
-        final loc = d.data()['location']?.toString() ?? '';
-        return widget.locationFilter!.contains(loc);
-      }).toList();
-    }
-
     // Apply search query (comma-separated AND logic)
     final query = widget.searchQuery.trim();
-    if (query.isEmpty) return filtered;
+    if (query.isEmpty) return docs;
 
-    final terms = query.split(',').map((t) => t.trim().toLowerCase()).where((t) => t.isNotEmpty).toList();
-    if (terms.isEmpty) return filtered;
+    final terms =
+        query
+            .split(',')
+            .map((t) => t.trim().toLowerCase())
+            .where((t) => t.isNotEmpty)
+            .toList();
+    if (terms.isEmpty) return docs;
 
-    return filtered.where((d) {
+    return docs.where((d) {
       final m = d.data();
-      final searchableText = m.values.map((v) => v?.toString().toLowerCase() ?? '').join(' ');
+      final searchableText = m.values
+          .map((v) => v?.toString().toLowerCase() ?? '')
+          .join(' ');
       // ALL terms must be present (AND logic)
       return terms.every((term) => searchableText.contains(term));
     }).toList();
@@ -273,7 +275,12 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
     final selected = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
+      position: RelativeRect.fromLTRB(
+        globalPosition.dx,
+        globalPosition.dy,
+        globalPosition.dx,
+        globalPosition.dy,
+      ),
       items: const [
         PopupMenuItem(value: 'copy-id', child: Text('Copy Reference')),
         PopupMenuItem(value: 'delete', child: Text('Delete Row')),
@@ -286,13 +293,17 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
       case 'copy-id':
         await Clipboard.setData(ClipboardData(text: doc.id));
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Document ID copied')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Document ID copied')));
         }
         break;
       case 'delete':
         await source.deleteAt(docIndex);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Document deleted')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Document deleted')));
         }
         break;
     }
@@ -300,7 +311,10 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
   // ── Grid Builder ──
 
-  Widget _buildGrid(DataGridSource source, {FirestoreDataSource? firestoreSource}) {
+  Widget _buildGrid(
+    DataGridSource source, {
+    FirestoreDataSource? firestoreSource,
+  }) {
     final headerBg = Theme.of(context).colorScheme.primaryContainer;
     final headerFg = Theme.of(context).colorScheme.onPrimaryContainer;
 
@@ -308,28 +322,35 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
       builder: (context, constraints) {
         final widths = _columnManager?.calculateWidths(constraints) ?? {};
 
-        final gridColumns = widget.columns
-            .map(
-              (col) => GridColumn(
-                columnName: col.field,
-                width: widths[col.field]!,
-                label: Container(
-                  color: headerBg,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    col.label,
-                    style: TextStyle(color: headerFg, fontWeight: FontWeight.w600),
-                    overflow: TextOverflow.ellipsis,
+        final gridColumns =
+            widget.columns
+                .map(
+                  (col) => GridColumn(
+                    columnName: col.field,
+                    width: widths[col.field]!,
+                    label: Container(
+                      color: headerBg,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        col.label,
+                        style: TextStyle(
+                          color: headerFg,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            )
-            .toList();
+                )
+                .toList();
 
         return DecoratedBox(
           decoration: BoxDecoration(
-            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant, width: 2),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+              width: 2,
+            ),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Padding(
@@ -339,9 +360,11 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
               child: SfDataGridTheme(
                 data: SfDataGridThemeData(
                   headerColor: headerBg,
-                  columnResizeIndicatorColor: Theme.of(context).colorScheme.primary,
+                  columnResizeIndicatorColor:
+                      Theme.of(context).colorScheme.primary,
                   columnResizeIndicatorStrokeWidth: 3.0,
-                  columnDragIndicatorColor: Theme.of(context).colorScheme.secondary,
+                  columnDragIndicatorColor:
+                      Theme.of(context).colorScheme.secondary,
                   columnDragIndicatorStrokeWidth: 3.0,
                 ),
                 child: SfDataGrid(
@@ -357,29 +380,38 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
                   frozenColumnsCount: widget.frozenColumnsCount,
                   gridLinesVisibility: GridLinesVisibility.horizontal,
                   headerGridLinesVisibility: GridLinesVisibility.horizontal,
-                  allowEditing: true,
+                  allowEditing: widget.allowEditing,
                   selectionMode: SelectionMode.single,
                   navigationMode: GridNavigationMode.cell,
-                  editingGestureType: EditingGestureType.doubleTap,
+                  editingGestureType:
+                      widget.allowEditing
+                          ? EditingGestureType.doubleTap
+                          : EditingGestureType.tap,
                   allowColumnsDragging: true,
                   allowColumnsResizing: true,
                   onColumnResizeStart: _onColumnResizeStart,
                   onColumnResizeUpdate: _onColumnResizeUpdate,
                   onColumnResizeEnd: _onColumnResizeEnd,
-                  onCellSecondaryTap: widget.enableRowMenu && firestoreSource != null
-                      ? (details) => _showRowMenu(
+                  onCellSecondaryTap:
+                      widget.enableRowMenu &&
+                              widget.allowEditing &&
+                              firestoreSource != null
+                          ? (details) => _showRowMenu(
                             globalPosition: details.globalPosition,
                             gridRowIndex: details.rowColumnIndex.rowIndex,
                             source: firestoreSource,
                           )
-                      : null,
-                  onCellLongPress: widget.enableRowMenu && firestoreSource != null
-                      ? (details) => _showRowMenu(
+                          : null,
+                  onCellLongPress:
+                      widget.enableRowMenu &&
+                              widget.allowEditing &&
+                              firestoreSource != null
+                          ? (details) => _showRowMenu(
                             globalPosition: details.globalPosition,
                             gridRowIndex: details.rowColumnIndex.rowIndex,
                             source: firestoreSource,
                           )
-                      : null,
+                          : null,
                 ),
               ),
             ),
@@ -395,7 +427,9 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
     // ── Mode 1: Local list (no Firestore) ──
     if (widget.rows != null) {
-      if (!_prefsLoaded) return const Center(child: CircularProgressIndicator());
+      if (!_prefsLoaded) {
+        return const Center(child: CircularProgressIndicator());
+      }
 
       final source = ListMapDataSource(
         rows: widget.rows!,
@@ -412,14 +446,17 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
     // ── Mode 2: Inventory stream with advanced filtering ──
     if (widget.useInventoryStream) {
       return StreamBuilder<List<Doc>>(
-        stream: _inventoryRepo.streamFiltered(
+        stream: _inventoryRepo!.streamFiltered(
+          // _inventoryRepo is initialized for non-local modes in initState.
           typeFilter: widget.typeFilter,
           packageFilter: widget.packageFilter,
           locationFilter: widget.locationFilter,
         ),
         builder: (context, snap) {
           if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
-          if (snap.connectionState == ConnectionState.waiting || !snap.hasData || !_prefsLoaded) {
+          if (snap.connectionState == ConnectionState.waiting ||
+              !snap.hasData ||
+              !_prefsLoaded) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -437,10 +474,12 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
     // ── Mode 3: Generic Firestore collection ──
     return StreamBuilder<List<Doc>>(
-      stream: _inventoryRepo.streamCollection(widget.collection!),
+      stream: _inventoryRepo!.streamCollection(widget.collection!),
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
-        if (snap.connectionState == ConnectionState.waiting || !snap.hasData || !_prefsLoaded) {
+        if (snap.connectionState == ConnectionState.waiting ||
+            !snap.hasData ||
+            !_prefsLoaded) {
           return const Center(child: CircularProgressIndicator());
         }
 

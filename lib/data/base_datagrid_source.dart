@@ -64,14 +64,23 @@ abstract class BaseDataGridSource extends DataGridSource {
 
   // Common helpers from both files
   bool _isNumericKind(String field) {
-    final spec = columns.firstWhere((c) => c.field == field, orElse: () => ColumnSpec(field: field));
+    final spec = columns.firstWhere(
+      (c) => c.field == field,
+      orElse: () => ColumnSpec(field: field),
+    );
     return spec.kind == CellKind.integer || spec.kind == CellKind.decimal;
   }
 
   bool _isUrlKind(String field) {
-    final spec = columns.firstWhere((c) => c.field == field, orElse: () => ColumnSpec(field: field));
+    final spec = columns.firstWhere(
+      (c) => c.field == field,
+      orElse: () => ColumnSpec(field: field),
+    );
     final f = field.toLowerCase();
-    return spec.kind == CellKind.url || f == 'datasheet' || f == 'url' || f == 'link';
+    return spec.kind == CellKind.url ||
+        f == 'datasheet' ||
+        f == 'url' ||
+        f == 'link';
   }
 
   // Common buildRow from FirestoreDataSource (it had the URL logic)
@@ -79,7 +88,10 @@ abstract class BaseDataGridSource extends DataGridSource {
   DataGridRowAdapter buildRow(DataGridRow row) {
     final rowIndex = _dataGridRows.indexOf(row);
     final even = rowIndex.isEven;
-    final altColor = even ? colorScheme.surfaceContainer : colorScheme.surfaceContainerHighest;
+    final altColor =
+        even
+            ? colorScheme.surfaceContainer
+            : colorScheme.surfaceContainerHighest;
 
     return DataGridRowAdapter(
       color: altColor,
@@ -87,6 +99,16 @@ abstract class BaseDataGridSource extends DataGridSource {
           row.getCells().map<Widget>((cell) {
             final field = cell.columnName;
             final text = cell.value?.toString() ?? '';
+            final spec = columns.firstWhere(
+              (c) => c.field == field,
+              orElse: () => ColumnSpec(field: field),
+            );
+
+            // Handle checkbox column
+            if (spec.kind == CellKind.checkbox) {
+              return _buildCheckboxCell(rowIndex, field);
+            }
+
             final isUrl = _isUrlKind(field);
             final isNumeric = _isNumericKind(field);
 
@@ -96,7 +118,10 @@ abstract class BaseDataGridSource extends DataGridSource {
               maxLines: 1,
               softWrap: false,
               textAlign: isNumeric ? TextAlign.right : TextAlign.left,
-              style: isUrl && text.isNotEmpty ? const TextStyle(decoration: TextDecoration.underline) : null,
+              style:
+                  isUrl && text.isNotEmpty
+                      ? const TextStyle(decoration: TextDecoration.underline)
+                      : null,
             );
 
             final content = Tooltip(
@@ -104,18 +129,46 @@ abstract class BaseDataGridSource extends DataGridSource {
               waitDuration: const Duration(milliseconds: 500),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: isUrl && text.isNotEmpty ? InkWell(onTap: () => _openUrl(text), child: label) : label,
+                child:
+                    isUrl && text.isNotEmpty
+                        ? InkWell(onTap: () => _openUrl(text), child: label)
+                        : label,
               ),
             );
 
-            return Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: content);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: content,
+            );
           }).toList(),
+    );
+  }
+
+  Widget _buildCheckboxCell(int rowIndex, String field) {
+    final rowData = getRowData(rowIndex);
+    final isChecked = rowData[field] == true;
+
+    return Center(
+      child: Checkbox(
+        value: isChecked,
+        onChanged: (value) async {
+          final nextValue = value ?? false;
+          await onCommitValue(rowIndex, field, nextValue);
+          rowData[field] = nextValue;
+          _dataGridRows[rowIndex] = buildRowForIndex(rowIndex);
+          notifyListeners();
+        },
+      ),
     );
   }
 
   // Common canSubmitCell from both files
   @override
-  Future<bool> canSubmitCell(DataGridRow row, RowColumnIndex rowColumnIndex, GridColumn column) async {
+  Future<bool> canSubmitCell(
+    DataGridRow dataGridRow,
+    RowColumnIndex rowColumnIndex,
+    GridColumn column,
+  ) async {
     final field = column.columnName;
     final spec = columns.firstWhere(
       (c) => c.field == field,
@@ -131,16 +184,26 @@ abstract class BaseDataGridSource extends DataGridSource {
       case CellKind.dropdown:
       case CellKind.text:
       case CellKind.url:
+      case CellKind.checkbox:
         return true;
     }
   }
 
   // Common onCellSubmit, modified to call abstract onCommitValue
   @override
-  Future<void> onCellSubmit(DataGridRow dataGridRow, RowColumnIndex rowColumnIndex, GridColumn column) async {
+  Future<void> onCellSubmit(
+    DataGridRow dataGridRow,
+    RowColumnIndex rowColumnIndex,
+    GridColumn column,
+  ) async {
     if (newCellValue == null) return;
     final oldValue =
-        dataGridRow.getCells().firstWhere((c) => c.columnName == column.columnName).value?.toString() ?? '';
+        dataGridRow
+            .getCells()
+            .firstWhere((c) => c.columnName == column.columnName)
+            .value
+            ?.toString() ??
+        '';
 
     if (newCellValue == oldValue) return;
 
@@ -151,16 +214,20 @@ abstract class BaseDataGridSource extends DataGridSource {
     dynamic parsedValue;
     switch (colSpec.kind) {
       case CellKind.integer:
-        parsedValue = newCellValue!.isEmpty ? null : int.tryParse(newCellValue!);
+        parsedValue =
+            newCellValue!.isEmpty ? null : int.tryParse(newCellValue!);
         break;
       case CellKind.decimal:
-        parsedValue = newCellValue!.isEmpty ? null : double.tryParse(newCellValue!);
+        parsedValue =
+            newCellValue!.isEmpty ? null : double.tryParse(newCellValue!);
         break;
       case CellKind.dropdown:
       case CellKind.text:
       case CellKind.url:
         parsedValue = newCellValue;
         break;
+      case CellKind.checkbox:
+        return; // Checkboxes are handled separately, should not reach here
     }
 
     // 1. Call abstract method to persist the change
@@ -187,7 +254,12 @@ abstract class BaseDataGridSource extends DataGridSource {
     );
 
     final String displayText =
-        dataGridRow.getCells().firstWhere((DataGridCell c) => c.columnName == field).value?.toString() ?? '';
+        dataGridRow
+            .getCells()
+            .firstWhere((DataGridCell c) => c.columnName == field)
+            .value
+            ?.toString() ??
+        '';
     newCellValue = null;
 
     // Handle dropdown type
@@ -203,6 +275,7 @@ abstract class BaseDataGridSource extends DataGridSource {
         currentValue: displayText,
         optionsProvider: spec.dropdownOptionsProvider!,
         rowData: rowData,
+        colorScheme: colorScheme,
         onChanged: (value) {
           newCellValue = value;
           submitCell();
@@ -219,7 +292,10 @@ abstract class BaseDataGridSource extends DataGridSource {
         isInt
             ? <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly]
             : isDec
-            ? <TextInputFormatter>[FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')), _SingleDotFormatter()]
+            ? <TextInputFormatter>[
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              _SingleDotFormatter(),
+            ]
             : const <TextInputFormatter>[];
 
     return Container(
@@ -232,9 +308,15 @@ abstract class BaseDataGridSource extends DataGridSource {
         textAlign: isNumeric ? TextAlign.right : TextAlign.left,
         keyboardType:
             isInt
-                ? const TextInputType.numberWithOptions(signed: false, decimal: false)
+                ? const TextInputType.numberWithOptions(
+                  signed: false,
+                  decimal: false,
+                )
                 : isDec
-                ? const TextInputType.numberWithOptions(signed: false, decimal: true)
+                ? const TextInputType.numberWithOptions(
+                  signed: false,
+                  decimal: true,
+                )
                 : TextInputType.text,
         cursorHeight: 20,
         inputFormatters: fmts,
@@ -255,7 +337,10 @@ abstract class BaseDataGridSource extends DataGridSource {
 // Common _SingleDotFormatter from both files
 class _SingleDotFormatter extends TextInputFormatter {
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     final t = newValue.text;
     final dots = '.'.allMatches(t).length;
     if (dots > 1) return oldValue;
@@ -266,14 +351,17 @@ class _SingleDotFormatter extends TextInputFormatter {
 /// Searchable dropdown editor for cells with dropdown type
 class _DropdownEditor extends StatefulWidget {
   final String currentValue;
-  final Future<List<Map<String, String>>> Function(Map<String, dynamic> rowData) optionsProvider;
+  final Future<List<Map<String, String>>> Function(Map<String, dynamic> rowData)
+  optionsProvider;
   final Map<String, dynamic> rowData;
+  final ColorScheme colorScheme;
   final ValueChanged<String?> onChanged;
 
   const _DropdownEditor({
     required this.currentValue,
     required this.optionsProvider,
     required this.rowData,
+    required this.colorScheme,
     required this.onChanged,
   });
 
@@ -309,15 +397,40 @@ class _DropdownEditorState extends State<_DropdownEditor> {
     try {
       final options = await widget.optionsProvider(widget.rowData);
       if (mounted) {
+        // Pre-fill search box with type and value from BOM line
+        // For non-ICs (passives), also include package
+        final requiredAttrs =
+            widget.rowData['required_attributes'] as Map<String, dynamic>?;
+        final prefillTerms = <String>[];
+
+        if (requiredAttrs != null) {
+          final pkg = requiredAttrs['size']?.toString().trim() ?? '';
+          final type = requiredAttrs['part_type']?.toString().trim() ?? '';
+          final value = requiredAttrs['value']?.toString().trim() ?? '';
+
+          // Only include package for non-ICs (passives like resistors, capacitors, etc.)
+          if (pkg.isNotEmpty && type != 'ic') prefillTerms.add(pkg);
+          if (type.isNotEmpty) prefillTerms.add(type);
+          if (value.isNotEmpty) prefillTerms.add(value);
+        }
+
+        final prefillText = prefillTerms.join(' ');
+
         setState(() {
           _allOptions = options;
           _filteredOptions = options;
           _loading = false;
+          _searchController.text = prefillText;
         });
         // Auto-open dropdown after loading
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _focusNode.requestFocus();
+            // Select all text so user can easily delete it
+            _searchController.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _searchController.text.length,
+            );
             _showOverlay();
           }
         });
@@ -336,26 +449,32 @@ class _DropdownEditorState extends State<_DropdownEditor> {
   void _filterOptions() {
     if (_allOptions == null) return;
 
-    final query = _searchController.text.toLowerCase();
+    final query = _searchController.text.trim().toLowerCase();
     setState(() {
       if (query.isEmpty) {
         _filteredOptions = _allOptions!;
       } else {
-        _filteredOptions = _allOptions!.where((option) {
-          final id = option['id']?.toLowerCase() ?? '';
-          final partNum = option['part_#']?.toLowerCase() ?? '';
-          final type = option['type']?.toLowerCase() ?? '';
-          final value = option['value']?.toLowerCase() ?? '';
-          final pkg = option['package']?.toLowerCase() ?? '';
-          final location = option['location']?.toLowerCase() ?? '';
+        // Split query by spaces for AND logic (all terms must match)
+        final terms =
+            query.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
 
-          return id.contains(query) ||
-              partNum.contains(query) ||
-              type.contains(query) ||
-              value.contains(query) ||
-              pkg.contains(query) ||
-              location.contains(query);
-        }).toList();
+        _filteredOptions =
+            _allOptions!.where((option) {
+              final id = option['id']?.toLowerCase() ?? '';
+              final partNum = option['part_#']?.toLowerCase() ?? '';
+              final type = option['type']?.toLowerCase() ?? '';
+              final value = option['value']?.toLowerCase() ?? '';
+              final pkg = option['package']?.toLowerCase() ?? '';
+              final location = option['location']?.toLowerCase() ?? '';
+              final description = option['description']?.toLowerCase() ?? '';
+
+              // Combine all searchable fields
+              final searchableText =
+                  '$id $partNum $type $value $pkg $location $description';
+
+              // ALL terms must be present (AND logic)
+              return terms.every((term) => searchableText.contains(term));
+            }).toList();
       }
     });
 
@@ -373,39 +492,48 @@ class _DropdownEditorState extends State<_DropdownEditor> {
     final width = renderBox?.size.width ?? 300;
 
     _overlayEntry = OverlayEntry(
-      builder: (context) => Positioned(
-        width: width,
-        child: CompositedTransformFollower(
-          link: _layerLink,
-          showWhenUnlinked: false,
-          offset: const Offset(0, 30),
-          child: Material(
-            elevation: 8,
-            borderRadius: BorderRadius.circular(4),
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 300),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300),
+      builder:
+          (context) => Positioned(
+            width: width,
+            child: CompositedTransformFollower(
+              link: _layerLink,
+              showWhenUnlinked: false,
+              offset: const Offset(0, 30),
+              child: Material(
+                elevation: 8,
                 borderRadius: BorderRadius.circular(4),
-              ),
-              child: _filteredOptions.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text('No matches found', style: TextStyle(color: Colors.grey)),
-                    )
-                  : ListView.builder(
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      itemCount: _filteredOptions.length,
-                      itemBuilder: (context, index) {
-                        final option = _filteredOptions[index];
-                        return _buildOptionTile(option);
-                      },
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 300),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: widget.colorScheme.outlineVariant,
                     ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child:
+                      _filteredOptions.isEmpty
+                          ? Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(
+                              'No matches found',
+                              style: TextStyle(
+                                color: widget.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          )
+                          : ListView.builder(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap: true,
+                            itemCount: _filteredOptions.length,
+                            itemBuilder: (context, index) {
+                              final option = _filteredOptions[index];
+                              return _buildOptionTile(option);
+                            },
+                          ),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
 
     Overlay.of(context).insert(_overlayEntry!);
@@ -424,8 +552,18 @@ class _DropdownEditorState extends State<_DropdownEditor> {
     final pkg = option['package'] ?? '';
     final qty = option['qty'] ?? '';
     final location = option['location'] ?? '';
+    final description = option['description'] ?? '';
 
     final isSelected = id == widget.currentValue;
+
+    // Build main display line: Package + Value (most important for passives)
+    final mainParts = <String>[];
+    if (pkg.isNotEmpty) mainParts.add(pkg);
+    if (value.isNotEmpty) mainParts.add(value);
+    final mainLine =
+        mainParts.isNotEmpty
+            ? mainParts.join(' ')
+            : (description.isNotEmpty ? description : type);
 
     return InkWell(
       onTap: () {
@@ -435,32 +573,48 @@ class _DropdownEditorState extends State<_DropdownEditor> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.shade50 : null,
-          border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+          color:
+              isSelected
+                  ? widget.colorScheme.primaryContainer.withValues(alpha: 0.45)
+                  : null,
+          border: Border(
+            bottom: BorderSide(color: widget.colorScheme.outlineVariant),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Main line: part# or type+value
+            // Main line: package + value (most important)
             Row(
               children: [
                 if (isSelected)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: Icon(Icons.check, size: 16, color: Colors.blue.shade700),
+                    child: Icon(
+                      Icons.check,
+                      size: 16,
+                      color: widget.colorScheme.primary,
+                    ),
                   ),
                 Expanded(
                   child: Text(
-                    partNum.isNotEmpty ? partNum : '$type $value',
+                    mainLine,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.w500,
                     ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
+                const SizedBox(width: 8),
                 // Stock indicator
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: _getStockColor(qty),
                     borderRadius: BorderRadius.circular(3),
@@ -473,23 +627,46 @@ class _DropdownEditorState extends State<_DropdownEditor> {
               ],
             ),
             const SizedBox(height: 4),
-            // Details line: package + location
+            // Second line: part# (if available) + location
             Row(
               children: [
-                if (pkg.isNotEmpty) ...[
-                  Icon(Icons.memory, size: 12, color: Colors.grey.shade600),
+                if (partNum.isNotEmpty) ...[
+                  Icon(
+                    Icons.tag,
+                    size: 12,
+                    color: widget.colorScheme.onSurfaceVariant,
+                  ),
                   const SizedBox(width: 4),
-                  Text(
-                    pkg,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  Flexible(
+                    child: Text(
+                      partNum,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: widget.colorScheme.onSurfaceVariant,
+                        fontFamily: 'monospace',
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
                   ),
                   const SizedBox(width: 12),
                 ],
-                Icon(Icons.location_on, size: 12, color: Colors.grey.shade600),
+                Icon(
+                  Icons.location_on,
+                  size: 12,
+                  color: widget.colorScheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 4),
-                Text(
-                  location.isEmpty ? '(no location)' : location,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                Expanded(
+                  child: Text(
+                    location.isEmpty ? '(no location)' : location,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: widget.colorScheme.onSurfaceVariant,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                 ),
               ],
             ),
@@ -501,34 +678,46 @@ class _DropdownEditorState extends State<_DropdownEditor> {
 
   Color _getStockColor(String qtyStr) {
     final qty = int.tryParse(qtyStr) ?? 0;
-    if (qty == 0) return Colors.red.shade700;
-    if (qty < 10) return Colors.orange.shade700;
-    return Colors.green.shade700;
+    if (qty == 0) return widget.colorScheme.error;
+    if (qty < 10) return widget.colorScheme.secondary;
+    return widget.colorScheme.tertiary;
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(8.0),
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
         child: Row(
           children: [
-            SizedBox(
+            const SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            SizedBox(width: 8),
-            Text('Loading matches...', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(width: 8),
+            Text(
+              'Loading matches...',
+              style: TextStyle(
+                fontSize: 12,
+                color: widget.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       );
     }
 
     if (_allOptions == null || _allOptions!.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 12),
-        child: Text('No inventory matches found', style: TextStyle(color: Colors.grey, fontSize: 12)),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(
+          'No inventory matches found',
+          style: TextStyle(
+            color: widget.colorScheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
       );
     }
 
@@ -543,19 +732,29 @@ class _DropdownEditorState extends State<_DropdownEditor> {
           style: const TextStyle(fontSize: 14),
           decoration: InputDecoration(
             hintText: 'Search ${_allOptions!.length} matches...',
-            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            hintStyle: TextStyle(
+              fontSize: 13,
+              color: widget.colorScheme.onSurfaceVariant,
+            ),
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 8,
+              horizontal: 4,
+            ),
             border: InputBorder.none,
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear, size: 16),
-                    onPressed: () => _searchController.clear(),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  )
-                : const Icon(Icons.search, size: 16),
-            suffixIconConstraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+            suffixIcon:
+                _searchController.text.isNotEmpty
+                    ? IconButton(
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: () => _searchController.clear(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    )
+                    : const Icon(Icons.search, size: 16),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 24,
+              minHeight: 24,
+            ),
           ),
           onTap: () {
             if (_overlayEntry == null) _showOverlay();

@@ -1,7 +1,42 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smd_inv/services/csv_parser_service.dart';
 
+class _FakeFilePicker extends FilePicker {
+  FilePickerResult? pickResult;
+  Object? pickError;
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus p1)? onFileLoading,
+    bool allowCompression = false,
+    int compressionQuality = 0,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) async {
+    if (pickError != null) throw pickError!;
+    return pickResult;
+  }
+}
+
 void main() {
+  late _FakeFilePicker fakePicker;
+
+  setUp(() {
+    fakePicker = _FakeFilePicker();
+    FilePicker.platform = fakePicker;
+  });
+
   group('CsvParserService', () {
     group('parse() - Basic parsing', () {
       test('parses comma-separated CSV with header', () {
@@ -11,7 +46,13 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
 
         final result = CsvParserService.parse(
           csv,
-          expectedColumns: ['Item', 'Quantity', 'Link', 'Notes', 'Price Per Unit'],
+          expectedColumns: [
+            'Item',
+            'Quantity',
+            'Link',
+            'Notes',
+            'Price Per Unit',
+          ],
         );
 
         expect(result.success, true);
@@ -21,7 +62,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('parses tab-separated TSV with header', () {
-        const tsv = 'Item\tQuantity\tLink\tNotes\n'
+        const tsv =
+            'Item\tQuantity\tLink\tNotes\n'
             'Capacitor 10uF\t100\thttps://example.com\tTest note\n'
             'Resistor 10k\t200\thttps://example.com/r\tAnother note';
 
@@ -36,7 +78,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('auto-detects tab delimiter over comma', () {
-        const tsv = 'Item\tQuantity\tLink\n'
+        const tsv =
+            'Item\tQuantity\tLink\n'
             'Cap, 10uF\t100\thttps://example.com';
 
         final result = CsvParserService.parse(
@@ -50,7 +93,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('handles CSV without header row', () {
-        const csv = 'Capacitor 10uF,100,https://example.com\n'
+        const csv =
+            'Capacitor 10uF,100,https://example.com\n'
             'Resistor 10k,200,https://example.com/r';
 
         final result = CsvParserService.parse(
@@ -64,10 +108,7 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('returns error for empty input', () {
-        final result = CsvParserService.parse(
-          '',
-          expectedColumns: ['Item'],
-        );
+        final result = CsvParserService.parse('', expectedColumns: ['Item']);
 
         expect(result.success, false);
         expect(result.error, contains('Empty input'));
@@ -86,7 +127,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
 
     group('parse() - Column mapping', () {
       test('maps columns by exact name match', () {
-        const csv = 'Item,Quantity,Notes\n'
+        const csv =
+            'Item,Quantity,Notes\n'
             'Capacitor,100,Test';
 
         final result = CsvParserService.parse(
@@ -103,7 +145,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('maps columns by fuzzy match (contains)', () {
-        const csv = 'Item Name,Quantity Info,Link URL\n'
+        const csv =
+            'Item Name,Quantity Info,Link URL\n'
             'Capacitor,100,https://example.com';
 
         final result = CsvParserService.parse(
@@ -120,7 +163,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('handles case-insensitive matching', () {
-        const csv = 'ITEM,quantity,NoTeS\n'
+        const csv =
+            'ITEM,quantity,NoTeS\n'
             'Capacitor,100,Test';
 
         final result = CsvParserService.parse(
@@ -136,7 +180,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
 
     group('getCellValue()', () {
       test('retrieves cell value by column name', () {
-        const csv = 'Item,Quantity,Notes\n'
+        const csv =
+            'Item,Quantity,Notes\n'
             'Capacitor,100,Test note\n'
             'Resistor,200,Another';
 
@@ -155,7 +200,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('returns default value for missing column', () {
-        const csv = 'Item,Quantity\n'
+        const csv =
+            'Item,Quantity\n'
             'Capacitor,100';
 
         final result = CsvParserService.parse(
@@ -164,14 +210,12 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
         );
 
         final row = result.dataRows[0];
-        expect(
-          result.getCellValue(row, 'Notes', defaultValue: 'N/A'),
-          'N/A',
-        );
+        expect(result.getCellValue(row, 'Notes', defaultValue: 'N/A'), 'N/A');
       });
 
       test('returns default value for out-of-bounds column', () {
-        const csv = 'Item,Quantity\n'
+        const csv =
+            'Item,Quantity\n'
             'Capacitor,100';
 
         final result = CsvParserService.parse(
@@ -184,7 +228,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('trims whitespace from cell values', () {
-        const csv = 'Item,Quantity\n'
+        const csv =
+            'Item,Quantity\n'
             '  Capacitor  ,  100  ';
 
         final result = CsvParserService.parse(
@@ -200,7 +245,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
 
     group('getColumnValues()', () {
       test('returns all values for a column', () {
-        const csv = 'Item,Quantity\n'
+        const csv =
+            'Item,Quantity\n'
             'Capacitor,100\n'
             'Resistor,200\n'
             'Inductor,50';
@@ -218,7 +264,8 @@ Resistor 10k,200,https://example.com/r,Another note,\$0.10''';
       });
 
       test('returns empty list for missing column', () {
-        const csv = 'Item,Quantity\n'
+        const csv =
+            'Item,Quantity\n'
             'Capacitor,100';
 
         final result = CsvParserService.parse(
@@ -239,26 +286,27 @@ Resistor 10k 0603 1%,500,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/72
 
         final result = CsvParserService.parse(
           digikey,
-          expectedColumns: ['Item', 'Quantity', 'Link', 'Notes', 'Price Per Unit'],
+          expectedColumns: [
+            'Item',
+            'Quantity',
+            'Link',
+            'Notes',
+            'Price Per Unit',
+          ],
         );
 
         expect(result.success, true);
         expect(result.dataRows.length, 2);
 
         final firstRow = result.dataRows[0];
-        expect(
-          result.getCellValue(firstRow, 'Item'),
-          contains('Capacitor'),
-        );
+        expect(result.getCellValue(firstRow, 'Item'), contains('Capacitor'));
         expect(result.getCellValue(firstRow, 'Quantity'), '100');
-        expect(
-          result.getCellValue(firstRow, 'Price Per Unit'),
-          '\$0.05',
-        );
+        expect(result.getCellValue(firstRow, 'Price Per Unit'), '\$0.05');
       });
 
       test('parses Excel paste with tabs', () {
-        const excel = 'Item\tQuantity\tLink\tNotes\n'
+        const excel =
+            'Item\tQuantity\tLink\tNotes\n'
             'Capacitor 10uF\t100\thttps://example.com\tFrom Excel\n'
             'Resistor 10k\t200\thttps://example.com/r\tPasted';
 
@@ -276,7 +324,8 @@ Resistor 10k 0603 1%,500,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/72
       });
 
       test('handles CSV with quoted fields containing commas', () {
-        const csv = 'Item,Quantity,Notes\n'
+        const csv =
+            'Item,Quantity,Notes\n'
             '"Capacitor, 10uF, 0805",100,"Test, with, commas"\n'
             'Resistor 10k,200,Simple note';
 
@@ -290,14 +339,12 @@ Resistor 10k 0603 1%,500,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/72
 
         final firstRow = result.dataRows[0];
         // CSV parser should handle quoted fields correctly
-        expect(
-          result.getCellValue(firstRow, 'Item'),
-          contains('Capacitor'),
-        );
+        expect(result.getCellValue(firstRow, 'Item'), contains('Capacitor'));
       });
 
       test('handles empty cells gracefully', () {
-        const csv = 'Item,Quantity,Notes\n'
+        const csv =
+            'Item,Quantity,Notes\n'
             'Capacitor,,\n'
             ',200,Note only\n'
             'Complete,300,All fields';
@@ -318,6 +365,91 @@ Resistor 10k 0603 1%,500,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/72
         final row2 = result.dataRows[1];
         expect(result.getCellValue(row2, 'Item'), '');
         expect(result.getCellValue(row2, 'Quantity'), '200');
+      });
+    });
+
+    group('parseFromFile()', () {
+      test('returns error when no file is selected', () async {
+        fakePicker.pickResult = null;
+
+        final result = await CsvParserService.parseFromFile(
+          expectedColumns: ['Reference', 'Quantity'],
+        );
+
+        expect(result.success, isFalse);
+        expect(result.error, contains('No file selected'));
+      });
+
+      test('parses bytes from selected file', () async {
+        const csv = 'Reference,Quantity\nR1,2\n';
+        fakePicker.pickResult = FilePickerResult([
+          PlatformFile(
+            name: 'bom.csv',
+            size: csv.length,
+            bytes: Uint8List.fromList(csv.codeUnits),
+          ),
+        ]);
+
+        final result = await CsvParserService.parseFromFile(
+          expectedColumns: ['Reference', 'Quantity'],
+        );
+
+        expect(result.success, isTrue);
+        expect(result.dataRows, hasLength(1));
+        expect(result.getCellValue(result.dataRows.first, 'Reference'), 'R1');
+      });
+
+      test('parses desktop file path when bytes are unavailable', () async {
+        final file = File(
+          '${Directory.systemTemp.path}\\csv_parser_service_test_${DateTime.now().microsecondsSinceEpoch}.csv',
+        );
+        await file.writeAsString('Reference,Quantity\nC1,1\n');
+
+        fakePicker.pickResult = FilePickerResult([
+          PlatformFile(name: 'bom.csv', size: 20, path: file.path),
+        ]);
+
+        final result = await CsvParserService.parseFromFile(
+          expectedColumns: ['Reference', 'Quantity'],
+        );
+
+        expect(result.success, isTrue);
+        expect(result.dataRows, hasLength(1));
+        expect(result.getCellValue(result.dataRows.first, 'Reference'), 'C1');
+
+        if (file.existsSync()) {
+          await file.delete();
+        }
+      });
+
+      test('returns error when selected file has neither bytes nor path', () async {
+        fakePicker.pickResult = FilePickerResult([
+          PlatformFile(name: 'bom.csv', size: 0),
+        ]);
+
+        final result = await CsvParserService.parseFromFile(
+          expectedColumns: ['Reference', 'Quantity'],
+        );
+
+        expect(result.success, isFalse);
+        expect(result.error, contains('No bytes or path available'));
+      });
+
+      test('returns read error when path cannot be opened', () async {
+        fakePicker.pickResult = FilePickerResult([
+          PlatformFile(
+            name: 'bom.csv',
+            size: 0,
+            path: r'Z:\this\path\does\not\exist.csv',
+          ),
+        ]);
+
+        final result = await CsvParserService.parseFromFile(
+          expectedColumns: ['Reference', 'Quantity'],
+        );
+
+        expect(result.success, isFalse);
+        expect(result.error, contains('Failed to read file'));
       });
     });
   });

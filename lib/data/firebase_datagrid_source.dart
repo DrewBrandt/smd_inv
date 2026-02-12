@@ -9,12 +9,15 @@ typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 class FirestoreDataSource extends BaseDataGridSource {
   final List<Doc> _docs;
 
-  FirestoreDataSource({required List<Doc> docs, required super.columns, required super.colorScheme})
-    : _docs = docs;
+  FirestoreDataSource({
+    required List<Doc> docs,
+    required super.columns,
+    required super.colorScheme,
+  }) : _docs = docs;
 
   Doc docAt(int rowIndex) => _docs[rowIndex];
 
-    Future<void> deleteAt(int rowIndex) async {
+  Future<void> deleteAt(int rowIndex) async {
     final doc = _docs[rowIndex];
     await doc.reference.delete();
     _docs.removeAt(rowIndex);
@@ -40,13 +43,20 @@ class FirestoreDataSource extends BaseDataGridSource {
               displayValue = _formatType(displayValue);
             }
 
-            return DataGridCell<String>(columnName: col.field, value: displayValue);
+            return DataGridCell<String>(
+              columnName: col.field,
+              value: displayValue,
+            );
           }).toList(),
     );
   }
 
   @override
-  Future<void> onCommitValue(int rowIndex, String path, dynamic parsedValue) async {
+  Future<void> onCommitValue(
+    int rowIndex,
+    String path,
+    dynamic parsedValue,
+  ) async {
     final doc = _docs[rowIndex];
     // Firestore supports dot-notation for updates directly
     await doc.reference.update({path: parsedValue});

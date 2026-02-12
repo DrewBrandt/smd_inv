@@ -14,7 +14,12 @@ String detectPartType(String ref) {
   if (ref.startsWith('D')) return 'diode';
 
   // Connectors
-  if (ref.startsWith('J') || ref.startsWith('P') || ref.startsWith('X') || ref.startsWith('CON')) return 'connector';
+  if (ref.startsWith('J') ||
+      ref.startsWith('P') ||
+      ref.startsWith('X') ||
+      ref.startsWith('CON')) {
+    return 'connector';
+  }
 
   // Everything else is an IC (U, Q, BZ, etc.)
   return 'ic';
@@ -28,9 +33,18 @@ String normalizeValue(String? raw) {
   s = s.replaceAll('µ', 'u').replaceAll(RegExp(r'\s+'), '');
 
   // Handle nF → n notation (use replaceAllMapped to avoid $ issues)
-  s = s.replaceAllMapped(RegExp(r'(\d+\.?\d*)nF', caseSensitive: false), (m) => '${m.group(1)}n');
-  s = s.replaceAllMapped(RegExp(r'(\d+\.?\d*)uF', caseSensitive: false), (m) => '${m.group(1)}u');
-  s = s.replaceAllMapped(RegExp(r'(\d+\.?\d*)pF', caseSensitive: false), (m) => '${m.group(1)}p');
+  s = s.replaceAllMapped(
+    RegExp(r'(\d+\.?\d*)nF', caseSensitive: false),
+    (m) => '${m.group(1)}n',
+  );
+  s = s.replaceAllMapped(
+    RegExp(r'(\d+\.?\d*)uF', caseSensitive: false),
+    (m) => '${m.group(1)}u',
+  );
+  s = s.replaceAllMapped(
+    RegExp(r'(\d+\.?\d*)pF', caseSensitive: false),
+    (m) => '${m.group(1)}p',
+  );
 
   // Drop trailing unit markers like 'uf', 'nf', 'pf' → keep just u/n/p
   s = s.replaceAll(RegExp(r'([unpkmM])f$', caseSensitive: false), r'$1');
@@ -67,31 +81,22 @@ void main() {
       expect(file.existsSync(), true, reason: 'BOM_TEST_1.csv should exist');
 
       final content = await file.readAsString();
-      print('BOM_TEST_1.csv content length: ${content.length}');
-      print('First 500 chars:\n${content.substring(0, content.length > 500 ? 500 : content.length)}');
 
       final result = CsvParserService.parse(
         content,
-        expectedColumns: ['Reference', 'Designator', 'Quantity', 'Qty', 'Value', 'Designation', 'Footprint'],
+        expectedColumns: [
+          'Reference',
+          'Designator',
+          'Quantity',
+          'Qty',
+          'Value',
+          'Designation',
+          'Footprint',
+        ],
       );
-
-      print('\nParse success: ${result.success}');
-      if (!result.success) {
-        print('Error: ${result.error}');
-      }
-      print('Headers: ${result.headers}');
-      print('Data rows: ${result.dataRows.length}');
 
       expect(result.success, true);
       expect(result.dataRows.isNotEmpty, true);
-
-      // Print first few rows
-      for (var i = 0; i < (result.dataRows.length > 5 ? 5 : result.dataRows.length); i++) {
-        print('\nRow $i:');
-        for (var header in result.headers) {
-          print('  $header: ${result.getCellValue(result.dataRows[i], header)}');
-        }
-      }
     });
 
     test('Parse BOM_TEST_2.csv', () async {
@@ -99,31 +104,22 @@ void main() {
       expect(file.existsSync(), true, reason: 'BOM_TEST_2.csv should exist');
 
       final content = await file.readAsString();
-      print('BOM_TEST_2.csv content length: ${content.length}');
-      print('First 500 chars:\n${content.substring(0, content.length > 500 ? 500 : content.length)}');
 
       final result = CsvParserService.parse(
         content,
-        expectedColumns: ['Reference', 'Designator', 'Quantity', 'Qty', 'Value', 'Designation', 'Footprint'],
+        expectedColumns: [
+          'Reference',
+          'Designator',
+          'Quantity',
+          'Qty',
+          'Value',
+          'Designation',
+          'Footprint',
+        ],
       );
-
-      print('\nParse success: ${result.success}');
-      if (!result.success) {
-        print('Error: ${result.error}');
-      }
-      print('Headers: ${result.headers}');
-      print('Data rows: ${result.dataRows.length}');
 
       expect(result.success, true);
       expect(result.dataRows.isNotEmpty, true);
-
-      // Print first few rows
-      for (var i = 0; i < (result.dataRows.length > 5 ? 5 : result.dataRows.length); i++) {
-        print('\nRow $i:');
-        for (var header in result.headers) {
-          print('  $header: ${result.getCellValue(result.dataRows[i], header)}');
-        }
-      }
     });
 
     test('Test part type detection', () {
@@ -136,8 +132,6 @@ void main() {
       expect(detectPartType('U1'), 'ic');
       expect(detectPartType('BZ1'), 'ic');
       expect(detectPartType('Q1'), 'ic');
-
-      print('Part type detection tests passed!');
     });
 
     test('Test value normalization', () {
@@ -149,22 +143,23 @@ void main() {
       expect(normalizeValue('5k1'), '5k1');
       expect(normalizeValue('78k7'), '78k7');
       expect(normalizeValue('422k'), '422k');
-
-      print('Value normalization tests passed!');
-      print('  100nF → ${normalizeValue('100nF')}');
-      print('  470n → ${normalizeValue('470n')}');
-      print('  10uF → ${normalizeValue('10u')}');
-      print('  2u2 → ${normalizeValue('2u2')}');
-      print('  5k1 → ${normalizeValue('5k1')}');
     });
 
     test('Test package extraction', () {
       String extractPackage(String ref, String footprint) {
         final partType = detectPartType(ref);
 
-        if (['capacitor', 'resistor', 'inductor', 'diode', 'led'].contains(partType)) {
+        if ([
+          'capacitor',
+          'resistor',
+          'inductor',
+          'diode',
+          'led',
+        ].contains(partType)) {
           // For passives: extract size (0603, 0805, etc.)
-          final sizeMatch = RegExp(r'(0201|0402|0603|0805|1206|1210|2512|1005|1608|2012|2520|3216|3225)').firstMatch(footprint);
+          final sizeMatch = RegExp(
+            r'(0201|0402|0603|0805|1206|1210|2512|1005|1608|2012|2520|3216|3225)',
+          ).firstMatch(footprint);
           if (sizeMatch != null) {
             final extracted = sizeMatch.group(0)!;
             final imperialSizes = {
@@ -207,12 +202,22 @@ void main() {
       expect(extractPackage('R1', 'Resistor_SMD:R_0805_2012Metric'), '0805');
 
       // Test IC packages
-      expect(extractPackage('U1', 'Package_BGA:TFBGA-100_8x8mm_Layout10x10_P0.8mm'), 'TFBGA');
-      expect(extractPackage('U2', 'Package_DFN_QFN:DHVQFN-14-1EP_2.5x3mm_P0.5mm_EP1x1.5mm'), 'DHVQFN');
+      expect(
+        extractPackage('U1', 'Package_BGA:TFBGA-100_8x8mm_Layout10x10_P0.8mm'),
+        'TFBGA',
+      );
+      expect(
+        extractPackage(
+          'U2',
+          'Package_DFN_QFN:DHVQFN-14-1EP_2.5x3mm_P0.5mm_EP1x1.5mm',
+        ),
+        'DHVQFN',
+      );
       expect(extractPackage('U3', 'Package_TO_SOT_SMD:SOT-563'), 'SOT-563');
-      expect(extractPackage('U4', 'Package_BGA:WLP-4_0.86x0.86mm_P0.4mm'), 'WLP');
-
-      print('Package extraction tests passed!');
+      expect(
+        extractPackage('U4', 'Package_BGA:WLP-4_0.86x0.86mm_P0.4mm'),
+        'WLP',
+      );
     });
   });
 }

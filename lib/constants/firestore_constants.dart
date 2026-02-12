@@ -41,4 +41,9 @@ abstract class FirestoreFields {
   static const String quantity = 'quantity';
   static const String timestamp = 'timestamp';
   static const String bomSnapshot = 'bom_snapshot';
+  static const String consumedItems = 'consumed_items';
+  static const String undoneAt = 'undone_at';
+
+  // Utility fields
+  static const String docId = 'doc_id';
 }

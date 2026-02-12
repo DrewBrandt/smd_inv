@@ -91,10 +91,7 @@ void main() {
       test('handles empty selected_component_ref', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'selected_component_ref': '',
-          'part_#': 'C100',
-        };
+        final bomAttributes = {'selected_component_ref': '', 'part_#': 'C100'};
 
         final matches = await InventoryMatcher.findMatches(
           bomAttributes: bomAttributes,
@@ -106,16 +103,23 @@ void main() {
         expect(matches.length, 1);
         expect(matches.first.data()['part_#'], 'C100');
       });
+
+      test('queries firestore when inventory snapshot is omitted', () async {
+        final matches = await InventoryMatcher.findMatches(
+          bomAttributes: {'part_#': 'R100', 'part_type': 'resistor'},
+          firestore: fakeFirestore,
+        );
+
+        expect(matches.length, 1);
+        expect(matches.first.data()['part_#'], 'R100');
+      });
     });
 
     group('findMatches() - Strategy 2: part number exact match', () {
       test('matches by exact part number', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'part_#': 'R100',
-          'part_type': 'resistor',
-        };
+        final bomAttributes = {'part_#': 'R100', 'part_type': 'resistor'};
 
         final matches = await InventoryMatcher.findMatches(
           bomAttributes: bomAttributes,
@@ -149,10 +153,7 @@ void main() {
       test('trims whitespace from part numbers', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'part_#': '  R100  ',
-          'part_type': 'resistor',
-        };
+        final bomAttributes = {'part_#': '  R100  ', 'part_type': 'resistor'};
 
         final matches = await InventoryMatcher.findMatches(
           bomAttributes: bomAttributes,
@@ -162,6 +163,24 @@ void main() {
 
         expect(matches.length, 1);
         expect(matches.first.data()['part_#'], 'R100');
+      });
+
+      test('matches part numbers with separator differences', () async {
+        final inventory = await fakeFirestore.collection('inventory').get();
+
+        final bomAttributes = {
+          'part_#': 'ICSTM32F103', // no dashes/underscore
+          'part_type': 'ic',
+        };
+
+        final matches = await InventoryMatcher.findMatches(
+          bomAttributes: bomAttributes,
+          inventorySnapshot: inventory,
+          firestore: fakeFirestore,
+        );
+
+        expect(matches.length, 1);
+        expect(matches.first.data()['part_#'], 'IC-STM32F103');
       });
 
       test('returns empty list when part number not found', () async {
@@ -182,8 +201,7 @@ void main() {
       });
     });
 
-    group('findMatches() - Strategy 3: passive matching (type+value+size)',
-        () {
+    group('findMatches() - Strategy 3: passive matching (type+value+size)', () {
       test('matches capacitor by type+value+size', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
@@ -280,15 +298,107 @@ void main() {
 
         expect(matches.length, 1);
       });
+
+      test('matches equivalent capacitor values across units', () async {
+        final inventory = await fakeFirestore.collection('inventory').get();
+
+        final bomAttributes = {
+          'part_type': 'capacitor',
+          'value': '0.01m', // equals 10u
+          'size': '0805',
+        };
+
+        final matches = await InventoryMatcher.findMatches(
+          bomAttributes: bomAttributes,
+          inventorySnapshot: inventory,
+          firestore: fakeFirestore,
+        );
+
+        expect(matches.length, 2);
+      });
+
+      test('can resolve passive with missing package when unique', () async {
+        final inventory = await fakeFirestore.collection('inventory').get();
+
+        final bomAttributes = {
+          'part_type': 'resistor',
+          'value': '10k',
+          'size': '',
+        };
+
+        final matches = await InventoryMatcher.findMatches(
+          bomAttributes: bomAttributes,
+          inventorySnapshot: inventory,
+          firestore: fakeFirestore,
+        );
+
+        expect(matches.length, 1);
+        expect(matches.first.data()['part_#'], 'R100');
+      });
+
+      test(
+        'falls through strict package matching to weighted ranking when needed',
+        () async {
+          final inventory = await fakeFirestore.collection('inventory').get();
+
+          final bomAttributes = {
+            'part_type': 'capacitor',
+            'value': '10u',
+            'size': '0603', // Inventory has only 0805 for this value.
+          };
+
+          final matches = await InventoryMatcher.findMatches(
+            bomAttributes: bomAttributes,
+            inventorySnapshot: inventory,
+            firestore: fakeFirestore,
+          );
+
+          expect(matches.length, 2);
+          expect(matches.map((m) => m.data()['part_#']).toSet(), {
+            'C100',
+            'C200',
+          });
+        },
+      );
+
+      test(
+        'weighted ranking can use exact and contains part-number signals',
+        () async {
+          await fakeFirestore.collection('inventory').add({
+            'part_#': 'R100-ALT',
+            'type': 'resistor',
+            'value': '1k',
+            'package': '0402',
+            'qty': 25,
+          });
+          final inventory = await fakeFirestore.collection('inventory').get();
+
+          final bomAttributes = {
+            'part_type': 'resistor',
+            'value': 'R100',
+            'size': '0402',
+          };
+
+          final matches = await InventoryMatcher.findMatches(
+            bomAttributes: bomAttributes,
+            inventorySnapshot: inventory,
+            firestore: fakeFirestore,
+          );
+
+          expect(matches.length, 2);
+          expect(matches.map((m) => m.data()['part_#']).toSet(), {
+            'R100',
+            'R100-ALT',
+          });
+        },
+      );
     });
 
     group('findBestMatch()', () {
       test('returns single match when exactly one found', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'part_#': 'R100',
-        };
+        final bomAttributes = {'part_#': 'R100'};
 
         final bestMatch = await InventoryMatcher.findBestMatch(
           bomAttributes: bomAttributes,
@@ -322,9 +432,7 @@ void main() {
       test('returns null when no match found', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'part_#': 'NONEXISTENT',
-        };
+        final bomAttributes = {'part_#': 'NONEXISTENT'};
 
         final bestMatch = await InventoryMatcher.findBestMatch(
           bomAttributes: bomAttributes,
@@ -340,9 +448,7 @@ void main() {
       test('returns exactMatch result for single match', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'part_#': 'R100',
-        };
+        final bomAttributes = {'part_#': 'R100'};
 
         final result = await InventoryMatcher.getMatchResult(
           bomAttributes: bomAttributes,
@@ -385,9 +491,7 @@ void main() {
       test('returns notFound result when no match', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 
-        final bomAttributes = {
-          'part_#': 'NONEXISTENT',
-        };
+        final bomAttributes = {'part_#': 'NONEXISTENT'};
 
         final result = await InventoryMatcher.getMatchResult(
           bomAttributes: bomAttributes,
@@ -431,10 +535,7 @@ void main() {
       });
 
       test('handles partial attributes', () {
-        final attrs = {
-          'part_type': 'capacitor',
-          'value': '10u',
-        };
+        final attrs = {'part_type': 'capacitor', 'value': '10u'};
 
         final label = InventoryMatcher.makePartLabel(attrs);
 
@@ -450,11 +551,7 @@ void main() {
       });
 
       test('ignores empty values', () {
-        final attrs = {
-          'part_type': 'resistor',
-          'value': '',
-          'size': '0603',
-        };
+        final attrs = {'part_type': 'resistor', 'value': '', 'size': '0603'};
 
         final label = InventoryMatcher.makePartLabel(attrs);
 
@@ -465,9 +562,10 @@ void main() {
     group('Integration: Strategy priority', () {
       test('prefers selected_component_ref over part number', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
-        final resistorDocId = inventory.docs
-            .firstWhere((doc) => doc.data()['part_#'] == 'R100')
-            .id;
+        final resistorDocId =
+            inventory.docs
+                .firstWhere((doc) => doc.data()['part_#'] == 'R100')
+                .id;
 
         final bomAttributes = {
           'selected_component_ref': resistorDocId,

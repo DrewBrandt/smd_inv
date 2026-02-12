@@ -60,9 +60,8 @@ class CsvParserService {
     }
 
     // Check if first row is header
-    final firstRowStrings = rows.first
-      .map((e) => e.toString().trim().toLowerCase())
-      .toList();
+    final firstRowStrings =
+        rows.first.map((e) => e.toString().trim().toLowerCase()).toList();
 
     final isHeader = _hasHeaderRow(firstRowStrings, expectedColumns);
 
@@ -106,7 +105,9 @@ class CsvParserService {
         final fileHandle = File(file.path!);
         text = await fileHandle.readAsString();
       } else {
-        return CsvParseResult.error('Failed to read file: No bytes or path available');
+        return CsvParseResult.error(
+          'Failed to read file: No bytes or path available',
+        );
       }
     } catch (e) {
       return CsvParseResult.error('Failed to read file: $e');
@@ -116,7 +117,10 @@ class CsvParserService {
   }
 
   /// Check if first row looks like a header
-  static bool _hasHeaderRow(List<String> firstRow, List<String> expectedColumns) {
+  static bool _hasHeaderRow(
+    List<String> firstRow,
+    List<String> expectedColumns,
+  ) {
     // If any expected column is found in first row, assume it's a header
     for (final expected in expectedColumns) {
       final exp = expected.toLowerCase();
@@ -205,7 +209,14 @@ class CsvParseResult {
     String columnName, {
     String defaultValue = '',
   }) {
-    final index = columnMap[columnName];
+    var index = columnMap[columnName];
+    if (index == null) {
+      final target = columnName.toLowerCase().trim();
+      index = headers.indexWhere(
+        (h) => h == target || h.contains(target) || target.contains(h),
+      );
+      if (index < 0) index = null;
+    }
     if (index == null || index >= row.length) return defaultValue;
     return row[index]?.toString().trim() ?? defaultValue;
   }

@@ -25,7 +25,8 @@ void setNestedMapValue(Map<String, dynamic> map, String path, dynamic value) {
     // Go to the parent map
     final key = parts[i];
     if (current[key] == null || current[key] is! Map) {
-      current[key] = <String, dynamic>{}; // Create nested map if it doesn't exist
+      current[key] =
+          <String, dynamic>{}; // Create nested map if it doesn't exist
     }
     current = current[key];
   }

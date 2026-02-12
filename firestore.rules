@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEditorEmail() {
+      return isSignedIn() &&
+          request.auth.token.email is string &&
+          (
+            request.auth.token.email.matches('.*@umd\\.edu$') ||
+            request.auth.token.email.matches('.*@terpmail\\.umd\\.edu$')
+          );
+    }
+
+    match /{document=**} {
+      allow read: if true;
+      allow write: if isEditorEmail();
+    }
+  }
+}

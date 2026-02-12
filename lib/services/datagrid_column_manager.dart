@@ -10,10 +10,7 @@ class DataGridColumnManager {
   Map<String, double> _userWidths = {};
   bool _isResizing = false;
 
-  DataGridColumnManager({
-    required this.persistKey,
-    required this.columns,
-  });
+  DataGridColumnManager({required this.persistKey, required this.columns});
 
   /// Load saved column widths from SharedPreferences
   Future<void> loadSavedWidths() async {
@@ -43,13 +40,18 @@ class DataGridColumnManager {
   /// Get minimum width for a column based on field name
   double getMinWidth(String field) {
     final f = field.toLowerCase();
+    if (f == '_ignored') return 60;
     if (f == 'qty' || f == 'quantity' || f == 'count') return 84;
     if (f == 'notes' || f == 'description' || f == 'desc') return 320;
-    if (f == 'datasheet' || f == 'url' || f == 'link' || f == 'vendor_link') return 220;
+    if (f == 'datasheet' || f == 'url' || f == 'link' || f == 'vendor_link') {
+      return 220;
+    }
     if (f == 'part_#' || f.endsWith('_id')) return 180;
     if (f == 'size' || f == 'value' || f == 'package') return 120;
     if (f == 'location') return 160;
-    if (f == 'type' || f == 'category' || f == 'parttype' || f == 'part_type') return 120;
+    if (f == 'type' || f == 'category' || f == 'parttype' || f == 'part_type') {
+      return 120;
+    }
     return 140;
   }
 
@@ -58,7 +60,9 @@ class DataGridColumnManager {
     final f = column.field.toLowerCase();
     if (f == 'notes' || f == 'description' || f == 'desc') return 3.0;
     if (f == 'part_#') return 2.0;
-    if (f == 'datasheet' || f == 'url' || f == 'link' || f == 'vendor_link') return 0; // Don't grow
+    if (f == 'datasheet' || f == 'url' || f == 'link' || f == 'vendor_link') {
+      return 0; // Don't grow
+    }
     return 1.0;
   }
 
@@ -66,13 +70,13 @@ class DataGridColumnManager {
   Map<String, double> calculateWidths(BoxConstraints constraints) {
     // Start with minimum widths
     final mins = <String, double>{
-      for (final c in columns) c.field: getMinWidth(c.field)
+      for (final c in columns) c.field: getMinWidth(c.field),
     };
     final weights = <String, double>{
-      for (final c in columns) c.field: getWeight(c)
+      for (final c in columns) c.field: getWeight(c),
     };
     final widths = <String, double>{
-      for (final c in columns) c.field: mins[c.field]!
+      for (final c in columns) c.field: mins[c.field]!,
     };
 
     // Apply user-saved widths (but respect minimums)
@@ -90,13 +94,18 @@ class DataGridColumnManager {
 
       if (extra > 0) {
         // Find columns that can grow (not manually resized, weight > 0)
-        final growable = columns.where((c) =>
-          !_userWidths.containsKey(c.field) && (weights[c.field] ?? 0) > 0
-        ).toList();
+        final growable =
+            columns
+                .where(
+                  (c) =>
+                      !_userWidths.containsKey(c.field) &&
+                      (weights[c.field] ?? 0) > 0,
+                )
+                .toList();
 
         final totalWeight = growable.fold<double>(
           0.0,
-          (a, c) => a + (weights[c.field] ?? 0)
+          (a, c) => a + (weights[c.field] ?? 0),
         );
 
         if (totalWeight > 0) {

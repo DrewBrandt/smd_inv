@@ -33,7 +33,13 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     try {
       // Use CsvParserService for consistent parsing
       final parseResult = await CsvParserService.parseFromFile(
-        expectedColumns: ['Item', 'Quantity', 'Link', 'Notes', 'Price Per Unit'],
+        expectedColumns: [
+          'Item',
+          'Quantity',
+          'Link',
+          'Notes',
+          'Price Per Unit',
+        ],
       );
 
       if (!parseResult.success) {
@@ -103,7 +109,6 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     String notes,
     double? pricePerUnit,
   ) {
-
     // Extract part# from DigiKey URL
     String partNumber = '';
     if (link.contains('digikey.com')) {
@@ -120,7 +125,10 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     if (itemLower.contains('cap') || itemLower.contains('uf')) {
       final value = _extractValue(itemName);
       return {
-        'part_#': partNumber.isNotEmpty ? partNumber : 'CAP-$_defaultPackage-${value ?? "UNKNOWN"}',
+        'part_#':
+            partNumber.isNotEmpty
+                ? partNumber
+                : 'CAP-$_defaultPackage-${value ?? "UNKNOWN"}',
         'type': 'capacitor',
         'value': value,
         'package': _defaultPackage,
@@ -137,7 +145,10 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     if (itemLower.contains('resistor') || itemLower.contains('ohm')) {
       final value = _extractValue(itemName);
       return {
-        'part_#': partNumber.isNotEmpty ? partNumber : 'RES-$_defaultPackage-${value ?? "UNKNOWN"}',
+        'part_#':
+            partNumber.isNotEmpty
+                ? partNumber
+                : 'RES-$_defaultPackage-${value ?? "UNKNOWN"}',
         'type': 'resistor',
         'value': value,
         'package': _defaultPackage,
@@ -189,7 +200,10 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
 
   String? _extractValue(String itemName) {
     // Match patterns like "2.2uF", "10k", "100nF"
-    final match = RegExp(r'(\d+\.?\d*)\s*(u|n|p|k|m|M|G)?(?:F|H|ohm)?', caseSensitive: false).firstMatch(itemName);
+    final match = RegExp(
+      r'(\d+\.?\d*)\s*(u|n|p|k|m|M|G)?(?:F|H|ohm)?',
+      caseSensitive: false,
+    ).firstMatch(itemName);
 
     if (match != null) {
       final num = match.group(1);
@@ -206,7 +220,10 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
   String? _extractPackage(String itemName) {
     // Common package patterns
     final patterns = [
-      RegExp(r'\b(SOIC|QFP|QFN|DIP|TSSOP|VFQFPN|LQFP|TQFP)-?\d+\b', caseSensitive: false),
+      RegExp(
+        r'\b(SOIC|QFP|QFN|DIP|TSSOP|VFQFPN|LQFP|TQFP)-?\d+\b',
+        caseSensitive: false,
+      ),
       RegExp(r'\bJST[- ]?[A-Z]{2}[- ]?\d+P?\b', caseSensitive: false),
     ];
 
@@ -226,6 +243,7 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     try {
       int imported = 0;
       int skipped = 0;
+      bool cancelled = false;
 
       for (final row in _parsedRows!) {
         // Check for duplicates
@@ -235,64 +253,90 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
           continue;
         }
 
-        final existing = await FirebaseFirestore.instance
-            .collection(FirestoreCollections.inventory)
-            .where(FirestoreFields.partNumber, isEqualTo: partNum)
-            .limit(1)
-            .get();
+        final existing =
+            await FirebaseFirestore.instance
+                .collection(FirestoreCollections.inventory)
+                .where(FirestoreFields.partNumber, isEqualTo: partNum)
+                .limit(1)
+                .get();
 
         if (existing.docs.isNotEmpty) {
           // Duplicate found - ask user
           if (!mounted) break;
 
-          final action = await _showDuplicateDialog(row, existing.docs.first.data());
+          final action = await _showDuplicateDialog(
+            row,
+            existing.docs.first.data(),
+          );
 
-          if (action == null || action == 'cancel') {
-            skipped++;
-            continue;
-          } else if (action == 'add') {
-            // Add quantity to existing
-            final existingQty = existing.docs.first.data()['qty'] ?? 0;
-            final newQty = row['qty'] ?? 0;
-            await existing.docs.first.reference.update({
-              'qty': existingQty + newQty,
-              'last_updated': FieldValue.serverTimestamp(),
-            });
-            imported++;
-          } else if (action == 'replace') {
-            // Replace entire document
-            await existing.docs.first.reference.set({...row, 'last_updated': FieldValue.serverTimestamp()});
-            imported++;
+          switch (action) {
+            case null:
+            case 'cancel':
+              cancelled = true;
+              break;
+            case 'skip':
+              skipped++;
+              continue;
+            case 'add':
+              final existingQty = existing.docs.first.data()['qty'] ?? 0;
+              final newQty = row['qty'] ?? 0;
+              await existing.docs.first.reference.update({
+                'qty': existingQty + newQty,
+                'last_updated': FieldValue.serverTimestamp(),
+              });
+              imported++;
+              continue;
+            case 'replace':
+              await existing.docs.first.reference.set({
+                ...row,
+                'last_updated': FieldValue.serverTimestamp(),
+              });
+              imported++;
+              continue;
           }
-          // 'skip' falls through to skipped++
+
+          if (cancelled) break;
         } else {
           // New item
           await FirebaseFirestore.instance
               .collection(FirestoreCollections.inventory)
               .add({
-            ...row,
-            FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
-          });
+                ...row,
+                FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
+              });
           imported++;
         }
+
+        if (cancelled) break;
       }
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('✅ Imported $imported items${skipped > 0 ? ", skipped $skipped" : ""}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              cancelled
+                  ? 'Import cancelled after $imported items${skipped > 0 ? ", skipped $skipped" : ""}'
+                  : 'Imported $imported items${skipped > 0 ? ", skipped $skipped" : ""}',
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
       }
     } finally {
       if (mounted) setState(() => _isImporting = false);
     }
   }
 
-  Future<String?> _showDuplicateDialog(Map<String, dynamic> newItem, Map<String, dynamic> existingItem) async {
+  Future<String?> _showDuplicateDialog(
+    Map<String, dynamic> newItem,
+    Map<String, dynamic> existingItem,
+  ) async {
     return showDialog<String>(
       context: context,
       builder:
@@ -315,10 +359,22 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Cancel Import')),
-              TextButton(onPressed: () => Navigator.pop(ctx, 'skip'), child: const Text('Skip This')),
-              TextButton(onPressed: () => Navigator.pop(ctx, 'add'), child: const Text('Add Quantity')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, 'replace'), child: const Text('Replace')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'cancel'),
+                child: const Text('Cancel Import'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'skip'),
+                child: const Text('Skip This'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'add'),
+                child: const Text('Add Quantity'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, 'replace'),
+                child: const Text('Replace'),
+              ),
             ],
           ),
     );
@@ -343,7 +399,13 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
       // Use CsvParserService for consistent parsing
       final parseResult = CsvParserService.parse(
         text,
-        expectedColumns: ['Item', 'Quantity', 'Link', 'Notes', 'Price Per Unit'],
+        expectedColumns: [
+          'Item',
+          'Quantity',
+          'Link',
+          'Notes',
+          'Price Per Unit',
+        ],
       );
 
       if (!parseResult.success) {
@@ -402,9 +464,15 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
               // Header
               Row(
                 children: [
-                  const Text('Import from CSV', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Import from CSV',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
                   const Spacer(),
-                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -427,8 +495,13 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                     SizedBox(
                       width: 150,
                       child: TextField(
-                        decoration: const InputDecoration(labelText: 'Default Package', border: OutlineInputBorder()),
-                        controller: TextEditingController(text: _defaultPackage),
+                        decoration: const InputDecoration(
+                          labelText: 'Default Package',
+                          border: OutlineInputBorder(),
+                        ),
+                        controller: TextEditingController(
+                          text: _defaultPackage,
+                        ),
                         onChanged: (v) => _defaultPackage = v,
                       ),
                     ),
@@ -439,9 +512,18 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
 
               // Content
               if (_isLoading)
-                const Expanded(child: Center(child: CircularProgressIndicator()))
+                const Expanded(
+                  child: Center(child: CircularProgressIndicator()),
+                )
               else if (_error != null)
-                Expanded(child: Center(child: Text(_error!, style: const TextStyle(color: Colors.red))))
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                )
               else if (_parsedRows == null)
                 Expanded(
                   child:
@@ -449,11 +531,17 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                           ? Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Paste CSV or TSV data:', style: TextStyle(fontWeight: FontWeight.bold)),
+                              const Text(
+                                'Paste CSV or TSV data:',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                               const SizedBox(height: 8),
                               const Text(
                                 'Copy data from Excel, Google Sheets, or a text file and paste here.',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
                               ),
                               const SizedBox(height: 12),
                               Expanded(
@@ -472,7 +560,10 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
                                   TextButton(
-                                    onPressed: () => setState(() => _showPasteMode = false),
+                                    onPressed:
+                                        () => setState(
+                                          () => _showPasteMode = false,
+                                        ),
                                     child: const Text('Back'),
                                   ),
                                   const SizedBox(width: 8),
@@ -489,7 +580,11 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.upload_file, size: 64, color: Colors.grey),
+                                const Icon(
+                                  Icons.upload_file,
+                                  size: 64,
+                                  color: Colors.grey,
+                                ),
                                 const SizedBox(height: 16),
                                 const Text('Import inventory from CSV or TSV'),
                                 const SizedBox(height: 24),
@@ -500,7 +595,9 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                                 ),
                                 const SizedBox(height: 12),
                                 OutlinedButton.icon(
-                                  onPressed: () => setState(() => _showPasteMode = true),
+                                  onPressed:
+                                      () =>
+                                          setState(() => _showPasteMode = true),
                                   icon: const Icon(Icons.content_paste),
                                   label: const Text('Paste CSV/TSV Data'),
                                 ),
@@ -526,14 +623,23 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                       Expanded(
                         child: UnifiedDataGrid.local(
                           rows: _parsedRows!,
-                          onRowsChanged: (updated) => setState(() => _parsedRows = updated),
+                          onRowsChanged:
+                              (updated) =>
+                                  setState(() => _parsedRows = updated),
                           columns: [
                             ColumnSpec(field: 'part_#', label: 'Part #'),
                             ColumnSpec(field: 'type', label: 'Type'),
                             ColumnSpec(field: 'value', label: 'Value'),
                             ColumnSpec(field: 'package', label: 'Package'),
-                            ColumnSpec(field: 'description', label: 'Description'),
-                            ColumnSpec(field: 'qty', label: 'Qty', kind: CellKind.integer),
+                            ColumnSpec(
+                              field: 'description',
+                              label: 'Description',
+                            ),
+                            ColumnSpec(
+                              field: 'qty',
+                              label: 'Qty',
+                              kind: CellKind.integer,
+                            ),
                             ColumnSpec(field: 'location', label: 'Location'),
                             ColumnSpec(field: 'notes', label: 'Notes'),
                           ],
@@ -558,7 +664,8 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                     const SizedBox(width: 8),
                   ],
                   TextButton(
-                    onPressed: _isImporting ? null : () => Navigator.pop(context),
+                    onPressed:
+                        _isImporting ? null : () => Navigator.pop(context),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 8),
@@ -567,9 +674,19 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                       onPressed: _isImporting ? null : _importToFirestore,
                       icon:
                           _isImporting
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
                               : const Icon(Icons.check),
-                      label: Text(_isImporting ? 'Importing...' : 'Import ${_parsedRows!.length} Items'),
+                      label: Text(
+                        _isImporting
+                            ? 'Importing...'
+                            : 'Import ${_parsedRows!.length} Items',
+                      ),
                     ),
                 ],
               ),

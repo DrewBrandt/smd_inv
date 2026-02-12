@@ -27,13 +27,20 @@ class ListMapDataSource extends BaseDataGridSource {
       cells:
           columns.map((col) {
             final value = getNestedMapValue(data, col.field); // Use helper
-            return DataGridCell<String>(columnName: col.field, value: value?.toString() ?? '');
+            return DataGridCell<String>(
+              columnName: col.field,
+              value: value?.toString() ?? '',
+            );
           }).toList(),
     );
   }
 
   @override
-  Future<void> onCommitValue(int rowIndex, String path, dynamic parsedValue) async {
+  Future<void> onCommitValue(
+    int rowIndex,
+    String path,
+    dynamic parsedValue,
+  ) async {
     // Update the local map
     setNestedMapValue(_rowsData[rowIndex], path, parsedValue);
 
