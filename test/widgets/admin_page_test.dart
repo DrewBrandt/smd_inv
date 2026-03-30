@@ -17,6 +17,8 @@ class _FakeFilePicker extends FilePicker {
   FilePickerResult? pickResult;
   Object? saveError;
   Object? pickError;
+  Uint8List? savedBytes;
+  String? savedFileName;
 
   @override
   Future<FilePickerResult?> pickFiles({
@@ -48,6 +50,8 @@ class _FakeFilePicker extends FilePicker {
     bool lockParentWindow = false,
   }) async {
     if (saveError != null) throw saveError!;
+    savedBytes = bytes;
+    savedFileName = fileName;
     return saveFilePath;
   }
 }
@@ -104,6 +108,7 @@ Future<void> _pumpAdmin(
   required BoardBuildService buildService,
   required InventoryAuditService auditService,
   Future<void> Function(String path, String contents)? writeFile,
+  bool isWeb = false,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -113,6 +118,7 @@ Future<void> _pumpAdmin(
           buildService: buildService,
           auditService: auditService,
           writeFile: writeFile,
+          isWeb: isWeb,
         ),
       ),
     ),
@@ -262,6 +268,35 @@ void main() {
 
     expect(audit.exportCalls, 1);
     expect(writeCalls, 0);
+  });
+
+  testWidgets('export on web passes bytes to file picker', (tester) async {
+    final db = FakeFirebaseFirestore();
+    final audit = _FakeAuditService(firestore: db)
+      ..exportText = 'part_#,qty\nR-e,7\n';
+    var writeCalls = 0;
+
+    await _pumpAdmin(
+      tester,
+      db: db,
+      buildService: BoardBuildService(firestore: db),
+      auditService: audit,
+      writeFile: (_, __) async => writeCalls++,
+      isWeb: true,
+    );
+
+    await tester.tap(find.text('Export CSV'));
+    await tester.pumpAndSettle();
+
+    expect(audit.exportCalls, 1);
+    expect(writeCalls, 0);
+    expect(fakePicker.savedFileName, 'inventory_audit_export.csv');
+    expect(fakePicker.savedBytes, isNotNull);
+    expect(
+      String.fromCharCodes(fakePicker.savedBytes!),
+      contains('part_#,qty'),
+    );
+    expect(find.text('Inventory audit CSV download started.'), findsOneWidget);
   });
 
   testWidgets('export shows failure snackbar when picker throws', (

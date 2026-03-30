@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../constants/firestore_constants.dart';
 import '../services/auth_service.dart';
 import '../services/board_build_service.dart';
@@ -13,6 +16,7 @@ class AdminPage extends StatelessWidget {
   final BoardBuildService? buildService;
   final InventoryAuditService? auditService;
   final Future<void> Function(String path, String contents)? writeFile;
+  final bool isWeb;
 
   const AdminPage({
     super.key,
@@ -20,6 +24,7 @@ class AdminPage extends StatelessWidget {
     this.buildService,
     this.auditService,
     this.writeFile,
+    this.isWeb = kIsWeb,
   });
 
   @override
@@ -30,6 +35,7 @@ class AdminPage extends StatelessWidget {
       buildService: buildService ?? BoardBuildService(firestore: db),
       auditService: auditService ?? InventoryAuditService(firestore: db),
       writeFile: writeFile ?? _defaultWriteFile,
+      isWeb: isWeb,
     );
   }
 
@@ -44,12 +50,14 @@ class _HistoryPanel extends StatefulWidget {
   final BoardBuildService buildService;
   final InventoryAuditService auditService;
   final Future<void> Function(String path, String contents) writeFile;
+  final bool isWeb;
 
   const _HistoryPanel({
     required this.firestore,
     required this.buildService,
     required this.auditService,
     required this.writeFile,
+    required this.isWeb,
   });
 
   @override
@@ -307,9 +315,29 @@ class _HistoryPanelState extends State<_HistoryPanel> {
     setState(() => _auditBusy = true);
     try {
       final csv = await widget.auditService.exportInventoryCsv();
+      const fileName = 'inventory_audit_export.csv';
+
+      if (widget.isWeb) {
+        await FilePicker.platform.saveFile(
+          dialogTitle: 'Save Inventory Audit CSV',
+          fileName: fileName,
+          type: FileType.custom,
+          allowedExtensions: ['csv'],
+          bytes: Uint8List.fromList(utf8.encode(csv)),
+        );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Inventory audit CSV download started.'),
+          ),
+        );
+        return;
+      }
+
       final path = await FilePicker.platform.saveFile(
         dialogTitle: 'Save Inventory Audit CSV',
-        fileName: 'inventory_audit_export.csv',
+        fileName: fileName,
         type: FileType.custom,
         allowedExtensions: ['csv'],
       );
