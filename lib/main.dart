@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,9 @@ import 'data/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) {
+    setUrlStrategy(const HashUrlStrategy());
+  }
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(SmdInvApp());
 }
@@ -205,6 +209,8 @@ class _AuthActions extends StatelessWidget {
       builder: (context, snap) {
         final user = snap.data;
         final canEdit = AuthService.canEdit(user);
+        final signInSupported = AuthService.supportsGoogleSignIn;
+        final signInSupportSummary = AuthService.googleSignInSupportSummary();
 
         return Row(
           children: [
@@ -218,10 +224,13 @@ class _AuthActions extends StatelessWidget {
               ),
             ),
             if (user == null)
-              FilledButton.icon(
-                onPressed: () => _signIn(context),
-                icon: const Icon(Icons.login),
-                label: const Text('Sign In'),
+              Tooltip(
+                message: signInSupportSummary,
+                child: FilledButton.icon(
+                  onPressed: signInSupported ? () => _signIn(context) : null,
+                  icon: const Icon(Icons.login),
+                  label: const Text('Sign In'),
+                ),
               )
             else ...[
               Tooltip(
@@ -265,6 +274,15 @@ class _AuthActions extends StatelessWidget {
   Future<void> _signIn(BuildContext context) async {
     try {
       final cred = await AuthService.signInWithGoogle();
+      if (cred == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Continuing sign-in in the browser...'),
+          ),
+        );
+        return;
+      }
       final email = cred.user?.email ?? '(no email)';
       final canEdit = AuthService.canEdit(cred.user);
       if (!context.mounted) return;
