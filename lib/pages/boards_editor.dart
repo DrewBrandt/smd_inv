@@ -12,6 +12,7 @@ import 'package:smd_inv/widgets/unified_data_grid.dart';
 import '../models/columns.dart';
 import '../constants/firestore_constants.dart';
 import '../services/inventory_matcher.dart';
+import '../utils/image_url_utils.dart';
 
 class BoardEditorPage extends StatefulWidget {
   final String? boardId;
@@ -118,7 +119,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
             : _db.collection(FirestoreCollections.boards).doc();
 
     // Handle image upload if new image selected
-    String? imageUrl = _image.text.trim().isEmpty ? null : _image.text.trim();
+    final imageUrl = normalizeBoardImageUrl(_image.text);
 
     final sanitizedBom = _sanitizeBomForSave(_bom);
 

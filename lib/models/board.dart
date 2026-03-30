@@ -1,6 +1,7 @@
 // lib/models/board.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/firestore_constants.dart';
+import '../utils/image_url_utils.dart';
 
 class BomLine {
   String designators;
@@ -90,7 +91,7 @@ class BoardDoc {
       description: m[FirestoreFields.description] as String?,
       category: m[FirestoreFields.category] as String?,
       color: m[FirestoreFields.color] as String?,
-      imageUrl: m[FirestoreFields.imageUrl] as String?,
+      imageUrl: normalizeBoardImageUrl(m[FirestoreFields.imageUrl] as String?),
       bom:
           bomRaw
               .map((e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map)))

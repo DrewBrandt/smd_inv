@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:smd_inv/utils/image_url_utils.dart';
 
 /// Category color mapping
 const Map<String, Color> kCategoryColors = {
@@ -200,6 +201,8 @@ class _FrontmatterSectionState extends State<FrontmatterSection> {
   }
 
   Widget _buildImage(ColorScheme cs) {
+    final imageUrl = normalizeBoardImageUrl(widget.image.text);
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
@@ -211,13 +214,6 @@ class _FrontmatterSectionState extends State<FrontmatterSection> {
             height: 180,
             decoration: BoxDecoration(
               color: cs.surfaceContainerHighest,
-              image:
-                  widget.image.text.isNotEmpty
-                      ? DecorationImage(
-                        image: NetworkImage(widget.image.text),
-                        fit: BoxFit.cover,
-                      )
-                      : null,
               borderRadius: BorderRadius.circular(90),
               border: Border.all(color: cs.outline, width: 2),
               boxShadow: [
@@ -229,9 +225,26 @@ class _FrontmatterSectionState extends State<FrontmatterSection> {
               ],
             ),
             child:
-                widget.image.text.isEmpty
-                    ? const Center(child: Icon(Icons.image_outlined, size: 48))
-                    : null,
+                ClipOval(
+                  child:
+                      imageUrl == null
+                          ? const Center(
+                            child: Icon(Icons.image_outlined, size: 48),
+                          )
+                          : Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+                            errorBuilder:
+                                (context, error, stackTrace) => Center(
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 48,
+                                    color: cs.outline,
+                                  ),
+                                ),
+                          ),
+                ),
           ),
           if (_hovering)
             Container(

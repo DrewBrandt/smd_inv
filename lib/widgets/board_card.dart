@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../models/board.dart';
 import '../models/readiness.dart';
+import '../utils/image_url_utils.dart';
 
 class ImprovedBoardCard extends StatelessWidget {
   final BoardDoc board;
@@ -31,6 +32,7 @@ class ImprovedBoardCard extends StatelessWidget {
     final totalCost = readiness.totalCost ?? 0.0;
     final buildableQty = readiness.buildableQty;
     final readyPct = readiness.readyPct;
+    final imageUrl = normalizeBoardImageUrl(board.imageUrl);
 
     return Card(
       elevation: 1,
@@ -55,11 +57,12 @@ class ImprovedBoardCard extends StatelessWidget {
                 ),
               ),
               child:
-                  board.imageUrl != null && board.imageUrl!.isNotEmpty
+                  imageUrl != null
                       ? Image.network(
-                        board.imageUrl!,
+                        imageUrl,
                         fit: BoxFit.cover,
                         width: double.infinity,
+                        webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
                         errorBuilder:
                             (context, error, stackTrace) =>
                                 _buildPlaceholderIcon(cs),
