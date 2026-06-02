@@ -201,6 +201,7 @@ class _BoardsPageState extends State<BoardsPage> {
                                       ).showSnackBar(
                                         SnackBar(
                                           content: Text('Cloned board: $newId'),
+                                          showCloseIcon: true,
                                         ),
                                       );
                                     },
@@ -1156,7 +1157,9 @@ class _BoardsPageState extends State<BoardsPage> {
 
   void _showInfo(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text), showCloseIcon: true),
+    );
   }
 
   Future<void> _makeBoards(
@@ -1208,6 +1211,7 @@ class _BoardsPageState extends State<BoardsPage> {
               'Resolve each missing line with a substitute or mark it skipped before building.',
             ),
             backgroundColor: Colors.red,
+            showCloseIcon: true,
           ),
         );
         return;
@@ -1278,6 +1282,7 @@ class _BoardsPageState extends State<BoardsPage> {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text(
             skippedCount > 0
                 ? 'Built $qty x ${board.name} with $skippedCount skipped BOM line(s)'
@@ -1293,13 +1298,21 @@ class _BoardsPageState extends State<BoardsPage> {
       if (!context.mounted) return;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: Colors.red,
+          showCloseIcon: true,
+        ),
       );
     } catch (e) {
       if (!context.mounted) return;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+          showCloseIcon: true,
+        ),
       );
     }
   }

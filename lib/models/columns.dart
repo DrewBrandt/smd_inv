@@ -1,6 +1,6 @@
 // lib/models/columns.dart
 
-enum CellKind { text, integer, decimal, url, dropdown, checkbox }
+enum CellKind { text, integer, decimal, url, dropdown, checkbox, statusIcon }
 
 /// Human-readable labels for common field names
 const Map<String, String> kAttrLabel = {

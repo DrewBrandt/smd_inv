@@ -64,52 +64,67 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
     final snap = await _db.collection(FirestoreCollections.inventory).get();
     _inventoryCache = snap;
     _matcherIndex = InventoryMatcherIndex.fromSnapshot(snap);
-    if (mounted) setState(_recomputeStock);
+    if (mounted) setState(_recomputeDerived);
   }
 
-  /// Refreshes the per-line "In Stock" figure from the inventory cache so the
-  /// editor shows how many of each paired part are available. Cheap (map/index
-  /// lookups) and safe to call whenever the BOM or inventory changes.
-  void _recomputeStock() {
+  /// Refreshes the per-line derived columns ("In Stock" figure and match
+  /// status) from the inventory cache so the editor shows availability and
+  /// flags missing/ambiguous pairings live. Cheap (map/index lookups) and safe
+  /// to call whenever the BOM or inventory changes.
+  void _recomputeDerived() {
     for (final line in _bom) {
-      line['_stock'] = _stockLabelForLine(line);
+      final state = _deriveLineState(line);
+      line['_stock'] = state.stock;
+      line['_status'] = state.status;
     }
   }
 
-  /// Stock figure shown for a BOM line. Prefers the explicitly paired
-  /// component; when a line isn't paired it falls back to what the matcher
-  /// would resolve so ambiguous/auto-matched lines still show availability.
-  String _stockLabelForLine(Map<String, dynamic> line) {
+  int _statusCount(String status) =>
+      _bom.where((l) => l['_status'] == status).length;
+
+  /// Computes the in-stock figure and match status for a BOM line. Prefers the
+  /// explicitly paired component; when a line isn't paired it falls back to
+  /// what the matcher would resolve so ambiguous/auto-matched lines still show
+  /// availability. Status tokens: matched / ambiguous / short / missing.
+  ({String stock, String status}) _deriveLineState(Map<String, dynamic> line) {
     final cache = _inventoryCache;
-    if (cache == null) return '';
+    final index = _matcherIndex;
+    if (cache == null || index == null) {
+      return (stock: '', status: 'pending');
+    }
     final attrs =
         line[FirestoreFields.requiredAttributes] as Map<String, dynamic>?;
-    if (attrs == null) return '—';
+    if (attrs == null) return (stock: '—', status: 'missing');
 
+    final needed = _toInt(line[FirestoreFields.qty], fallback: 1);
     final ref =
         attrs[FirestoreFields.selectedComponentRef]?.toString().trim() ?? '';
+
+    // Explicitly paired to one component.
     if (ref.isNotEmpty) {
-      for (final doc in cache.docs) {
-        if (doc.id == ref) {
-          final qty = (doc.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0;
-          return '$qty';
-        }
-      }
-      return 'missing';
+      final doc = index.docById(ref);
+      if (doc == null) return (stock: 'missing', status: 'missing');
+      final qty = (doc.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+      return (stock: '$qty', status: qty >= needed ? 'matched' : 'short');
     }
 
-    final index = _matcherIndex;
-    if (index == null) return '—';
+    // Not paired — show what the matcher would resolve.
     final matches = InventoryMatcher.findMatchesSync(
       bomAttributes: attrs,
       matcherIndex: index,
     );
-    if (matches.isEmpty) return '0';
+    if (matches.isEmpty) return (stock: '0', status: 'missing');
+
     final total = matches.fold<int>(
       0,
       (acc, m) => acc + ((m.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0),
     );
-    return matches.length == 1 ? '$total' : '$total (${matches.length} opts)';
+    if (total < needed) {
+      final label = matches.length == 1 ? '$total' : '$total (${matches.length})';
+      return (stock: label, status: 'short');
+    }
+    if (matches.length == 1) return (stock: '$total', status: 'matched');
+    return (stock: '$total (${matches.length} opts)', status: 'ambiguous');
   }
 
   void _markDirty() {
@@ -148,7 +163,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
             map['_ignored'] ??= false;
             return map;
           }).toList();
-      _recomputeStock();
+      _recomputeDerived();
       _dirty = false;
     });
   }
@@ -453,7 +468,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
       }
 
       setState(() {
-        _recomputeStock();
+        _recomputeDerived();
         _isMatching = false;
         _dirty = true;
       });
@@ -495,6 +510,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
         },
         '_match_status': 'missing',
         '_stock': '0',
+        '_status': 'missing',
         '_ignored': false,
       });
       _markDirty();
@@ -503,11 +519,11 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
 
   List<ColumnSpec> get _bomColumns => [
     ColumnSpec(
-      field: '_ignored',
-      label: 'Lock',
-      kind: CellKind.checkbox,
+      field: '_status',
+      label: 'Status',
+      kind: CellKind.statusIcon,
       editable: false,
-      maxPercentWidth: 6,
+      maxPercentWidth: 5,
     ),
     ColumnSpec(
       field: 'required_attributes.selected_component_ref',
@@ -627,26 +643,27 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                               ),
                               const SizedBox(width: 8),
                               _buildStatusChip(
-                                '${_bom.where((l) => l['_match_status'] == 'matched').length} matched',
+                                '${_statusCount('matched')} matched',
                                 cs.tertiary,
                               ),
-                              if (_bom
-                                  .where(
-                                    (l) => l['_match_status'] == 'ambiguous',
-                                  )
-                                  .isNotEmpty) ...[
+                              if (_statusCount('ambiguous') > 0) ...[
                                 const SizedBox(width: 8),
                                 _buildStatusChip(
-                                  '${_bom.where((l) => l['_match_status'] == 'ambiguous').length} ambiguous',
+                                  '${_statusCount('ambiguous')} ambiguous',
                                   cs.secondary,
                                 ),
                               ],
-                              if (_bom
-                                  .where((l) => l['_match_status'] == 'missing')
-                                  .isNotEmpty) ...[
+                              if (_statusCount('short') > 0) ...[
                                 const SizedBox(width: 8),
                                 _buildStatusChip(
-                                  '${_bom.where((l) => l['_match_status'] == 'missing').length} missing',
+                                  '${_statusCount('short')} low stock',
+                                  Colors.orange,
+                                ),
+                              ],
+                              if (_statusCount('missing') > 0) ...[
+                                const SizedBox(width: 8),
+                                _buildStatusChip(
+                                  '${_statusCount('missing')} missing',
                                   cs.error,
                                 ),
                               ],
@@ -748,7 +765,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                               onRowsChanged: (updated) {
                                 setState(() {
                                   _bom = updated;
-                                  _recomputeStock();
+                                  _recomputeDerived();
                                 });
                                 _markDirty();
                               },

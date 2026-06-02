@@ -448,7 +448,10 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
                 .map(
                   (col) => GridColumn(
                     columnName: col.field,
-                    width: widths[col.field]!,
+                    width:
+                        widths[col.field] ??
+                        (_columnManager?.getMinWidth(col.field) ?? 140),
+                    allowEditing: col.editable,
                     label: Container(
                       color: headerBg,
                       padding: const EdgeInsets.symmetric(horizontal: 12),

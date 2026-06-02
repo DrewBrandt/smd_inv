@@ -134,6 +134,11 @@ abstract class BaseDataGridSource extends DataGridSource {
               return _buildCheckboxCell(rowIndex, field);
             }
 
+            // Handle status-icon column (colored dot conveying match/stock state)
+            if (spec.kind == CellKind.statusIcon) {
+              return _buildStatusIconCell(text);
+            }
+
             final isUrl = _isUrlKind(field);
             final isNumeric = _isNumericKind(field);
 
@@ -166,6 +171,42 @@ abstract class BaseDataGridSource extends DataGridSource {
               child: content,
             );
           }).toList(),
+    );
+  }
+
+  /// Renders a small colored status dot for [CellKind.statusIcon] columns.
+  /// The cell value is a status token; unknown tokens render a neutral dot.
+  Widget _buildStatusIconCell(String status) {
+    final (IconData icon, Color color, String tip) = switch (status) {
+      'matched' || 'good' => (
+        Icons.check_circle,
+        colorScheme.tertiary,
+        'In stock and paired to a single component',
+      ),
+      'ambiguous' => (
+        Icons.help,
+        colorScheme.secondary,
+        'Multiple inventory matches — pick which one to use',
+      ),
+      'short' => (
+        Icons.warning_rounded,
+        Colors.orange,
+        'Matched, but not enough stock to build',
+      ),
+      'missing' => (
+        Icons.cancel,
+        colorScheme.error,
+        'No inventory match found',
+      ),
+      _ => (Icons.circle_outlined, colorScheme.outline, ''),
+    };
+
+    return Center(
+      child: Tooltip(
+        message: tip,
+        waitDuration: const Duration(milliseconds: 300),
+        child: Icon(icon, size: 18, color: color),
+      ),
     );
   }
 
@@ -226,6 +267,7 @@ abstract class BaseDataGridSource extends DataGridSource {
       case CellKind.text:
       case CellKind.url:
       case CellKind.checkbox:
+      case CellKind.statusIcon:
         return true;
     }
   }
@@ -271,7 +313,8 @@ abstract class BaseDataGridSource extends DataGridSource {
         parsedValue = newCellValue;
         break;
       case CellKind.checkbox:
-        return; // Checkboxes are handled separately, should not reach here
+      case CellKind.statusIcon:
+        return; // Non-editable cells; should not reach here
     }
 
     // 1. Call abstract method to persist the change
