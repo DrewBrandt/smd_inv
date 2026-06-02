@@ -77,6 +77,22 @@ class InventoryMatcher {
       if (relaxed.isNotEmpty && size.isEmpty) return relaxed;
     }
 
+    // Strategy 4b: LEDs carry no value (colour is deliberately left open and
+    // chosen at build time), so match on type + package and offer every
+    // same-size candidate. This surfaces as an ambiguous set for the user to
+    // pick from rather than "missing". Other passives with a blank value are a
+    // data gap, not a wildcard, so they are intentionally excluded here.
+    if (partType == 'led' && value.isEmpty) {
+      final wantedPackage = PartNormalizer.canonicalPackage(size);
+      if (wantedPackage.isNotEmpty) {
+        final pool = matcherIndex.docsByPartTypeAndPackage(
+          partType,
+          wantedPackage,
+        );
+        if (pool.isNotEmpty) return pool;
+      }
+    }
+
     // Strategy 5: weighted fallback for partial data.
     final weighted = _weightedCandidates(
       inventory:

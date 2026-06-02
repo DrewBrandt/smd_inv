@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smd_inv/data/inventory_repo.dart';
 import 'package:smd_inv/models/board.dart';
 import 'package:smd_inv/models/procurement.dart';
@@ -29,6 +30,13 @@ enum BoardSortOption {
 
   const BoardSortOption(this.label);
   final String label;
+
+  static BoardSortOption fromName(String? name) {
+    return BoardSortOption.values.firstWhere(
+      (option) => option.name == name,
+      orElse: () => BoardSortOption.nameAsc,
+    );
+  }
 }
 
 class BoardsPage extends StatefulWidget {
@@ -51,6 +59,8 @@ class _BoardsPageState extends State<BoardsPage> {
   String _boardSearchQuery = '';
   BoardSortOption _sortOption = BoardSortOption.nameAsc;
 
+  static const String _sortPrefsKey = 'boards_sort_option';
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +69,19 @@ class _BoardsPageState extends State<BoardsPage> {
       if (next == _boardSearchQuery) return;
       setState(() => _boardSearchQuery = next);
     });
+    _loadSavedSort();
+  }
+
+  Future<void> _loadSavedSort() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = BoardSortOption.fromName(prefs.getString(_sortPrefsKey));
+    if (!mounted || saved == _sortOption) return;
+    setState(() => _sortOption = saved);
+  }
+
+  Future<void> _saveSort(BoardSortOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sortPrefsKey, option.name);
   }
 
   @override
@@ -321,6 +344,7 @@ class _BoardsPageState extends State<BoardsPage> {
       onSelected: (option) {
         if (option == _sortOption) return;
         setState(() => _sortOption = option);
+        _saveSort(option);
       },
       itemBuilder:
           (context) =>

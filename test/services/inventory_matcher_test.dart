@@ -350,6 +350,48 @@ void main() {
       });
 
       test(
+        'matches valueless passive (LED) on type+package as ambiguous set',
+        () async {
+          // LEDs store no value (colour chosen at build time), so they must
+          // match on type+package and surface every same-size option.
+          await fakeFirestore.collection('inventory').add({
+            'part_#': 'LED-0805-RED',
+            'type': 'led',
+            'value': 'red',
+            'package': '0805',
+            'qty': 12,
+          });
+          await fakeFirestore.collection('inventory').add({
+            'part_#': 'LED-0805-GREEN',
+            'type': 'led',
+            'value': 'green',
+            'package': '0805',
+            'qty': 5,
+          });
+          await fakeFirestore.collection('inventory').add({
+            'part_#': 'LED-0603-BLUE',
+            'type': 'led',
+            'value': 'blue',
+            'package': '0603',
+            'qty': 8,
+          });
+          final inventory = await fakeFirestore.collection('inventory').get();
+
+          final matches = await InventoryMatcher.findMatches(
+            bomAttributes: {'part_type': 'led', 'value': '', 'size': '0805'},
+            inventorySnapshot: inventory,
+            firestore: fakeFirestore,
+          );
+
+          // Only the two 0805 LEDs, not the 0603 one.
+          expect(matches.map((m) => m.data()['part_#']).toSet(), {
+            'LED-0805-RED',
+            'LED-0805-GREEN',
+          });
+        },
+      );
+
+      test(
         'falls through strict package matching to weighted ranking when needed',
         () async {
           final inventory = await fakeFirestore.collection('inventory').get();
