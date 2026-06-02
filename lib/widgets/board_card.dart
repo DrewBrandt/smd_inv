@@ -290,6 +290,45 @@ class ImprovedBoardCard extends StatelessWidget {
                       ),
                     ],
 
+                    // Ambiguous parts: in stock and buildable, but the part
+                    // matches more than one inventory entry, so a location has
+                    // to be chosen when building. Distinct from a true shortfall.
+                    if (readiness.ambiguousParts.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: cs.tertiaryContainer.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: cs.tertiary.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.help_outline,
+                              size: 16,
+                              color: cs.onTertiaryContainer,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${readiness.ambiguousParts.length} part(s) in stock — '
+                                'choose a location when building',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: cs.onTertiaryContainer,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const Spacer(),
 
                     // Action buttons

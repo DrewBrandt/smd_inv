@@ -20,6 +20,7 @@ class ReadinessCalculator {
     }
 
     final shortfalls = <Shortfall>[];
+    final ambiguousParts = <String>[];
     double totalCost = 0.0;
     int minBuildableQty = 999999;
 
@@ -30,6 +31,7 @@ class ReadinessCalculator {
         buildableQty: 0,
         readyPct: 1.0,
         shortfalls: [],
+        ambiguousParts: [],
         totalCost: 0.0,
       );
     }
@@ -49,11 +51,17 @@ class ReadinessCalculator {
         continue;
       }
 
-      final match = matches.first;
-      final data = match.data();
-      final availableQty = (data[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+      // The same part can live in multiple inventory entries (e.g. split
+      // across locations). Total stock across every match determines whether
+      // the board can be built; the user picks which entry to pull from when
+      // there is more than one.
+      int availableQty = 0;
+      for (final match in matches) {
+        availableQty += (match.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+      }
       final pricePerUnit =
-          (data[FirestoreFields.pricePerUnit] as num?)?.toDouble();
+          (matches.first.data()[FirestoreFields.pricePerUnit] as num?)
+              ?.toDouble();
 
       if (pricePerUnit != null) {
         totalCost += pricePerUnit * requiredQty;
@@ -64,6 +72,10 @@ class ReadinessCalculator {
       if (buildableWithThisPart == 0) {
         final label = InventoryMatcher.makePartLabel(attrs);
         shortfalls.add(Shortfall(label, requiredQty - availableQty));
+      } else if (matches.length > 1) {
+        // In stock and buildable, but spread across multiple inventory
+        // entries — a location has to be chosen at build time.
+        ambiguousParts.add(InventoryMatcher.makePartLabel(attrs));
       }
 
       minBuildableQty =
@@ -85,6 +97,7 @@ class ReadinessCalculator {
       buildableQty: minBuildableQty,
       readyPct: readyPct,
       shortfalls: shortfalls,
+      ambiguousParts: ambiguousParts,
       totalCost: totalCost,
     );
   }

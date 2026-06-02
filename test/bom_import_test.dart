@@ -49,25 +49,18 @@ String normalizeValue(String? raw) {
   // Drop trailing unit markers like 'uf', 'nf', 'pf' → keep just u/n/p
   s = s.replaceAll(RegExp(r'([unpkmM])f$', caseSensitive: false), r'$1');
 
-  // "Embedded unit as decimal separator" forms:
-  //  e.g., 2u2 → 2.2u, 100n0 → 100n
-  // BUT keep resistance k notation as-is (e.g., 5k1, 78k7)
+  // "Embedded unit as decimal separator" forms move the unit to the end:
+  //  e.g., 2u2 → 2.2u, 100n0 → 100n, and resistors 5k1 → 5.1k, 78k7 → 78.7k.
   final m = RegExp(r'^(\d+)([unpkmMG])(\d+)$').firstMatch(s);
   if (m != null) {
     final intPart = m.group(1)!;
     final unit = m.group(2)!.toLowerCase();
     final frac = m.group(3)!;
 
-    // For resistors with 'k' notation, keep as-is (e.g., 5k1 stays 5k1)
-    if (unit == 'k') {
-      return s; // Keep original format for resistors
-    }
-
-    // For capacitors/inductors, convert to decimal (e.g., 2u2 → 2.2u)
     if (RegExp(r'^0+$').hasMatch(frac)) {
       return '$intPart$unit'; // e.g., 100n0 → 100n
     } else {
-      return '$intPart.$frac$unit'; // e.g., 2u2 → 2.2u
+      return '$intPart.$frac$unit'; // e.g., 2u2 → 2.2u, 5k1 → 5.1k
     }
   }
 
@@ -140,8 +133,8 @@ void main() {
       expect(normalizeValue('10uF'), '10u');
       expect(normalizeValue('2u2'), '2.2u');
       expect(normalizeValue('100n0'), '100n');
-      expect(normalizeValue('5k1'), '5k1');
-      expect(normalizeValue('78k7'), '78k7');
+      expect(normalizeValue('5k1'), '5.1k');
+      expect(normalizeValue('78k7'), '78.7k');
       expect(normalizeValue('422k'), '422k');
     });
 

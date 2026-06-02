@@ -9,6 +9,7 @@ import 'package:smd_inv/widgets/bom_import_widget.dart';
 import '../data/boards_repo.dart';
 import '../models/board.dart';
 import 'package:smd_inv/widgets/unified_data_grid.dart';
+import 'package:smd_inv/widgets/searchable_part_picker.dart';
 import '../models/columns.dart';
 import '../constants/firestore_constants.dart';
 import '../services/inventory_matcher.dart';
@@ -472,28 +473,14 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
         }
 
         // Convert all inventory to dropdown options
-        return _inventoryCache!.docs.map((doc) {
-          final data = doc.data();
-          final partNum = data['part_#']?.toString() ?? '';
-          final type = data['type']?.toString() ?? '';
-          final value = data['value']?.toString() ?? '';
-          final pkg = data['package']?.toString() ?? '';
-          final qty = data['qty']?.toString() ?? '';
-          final location = data['location']?.toString() ?? '';
-          final description = data['description']?.toString() ?? '';
-
-          // Return all fields for rich display in dropdown
-          return {
-            'id': doc.id,
-            'part_#': partNum,
-            'type': type,
-            'value': value,
-            'package': pkg,
-            'qty': qty,
-            'location': location,
-            'description': description,
-          };
-        }).toList();
+        return _inventoryCache!.docs
+            .map(
+              (doc) => SearchablePartPicker.inventoryDocToOption(
+                doc.id,
+                doc.data(),
+              ),
+            )
+            .toList();
       },
     ),
     ColumnSpec(field: 'designators', label: 'Designators'),

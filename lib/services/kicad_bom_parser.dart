@@ -88,6 +88,7 @@ class KicadBomParser {
       final inferredPartNumber = _extractLikelyPartNumber(
         valueRaw: valueRaw,
         partType: partType,
+        footprint: footprint,
       );
 
       parsed.add({
@@ -233,9 +234,18 @@ class KicadBomParser {
   static String _extractLikelyPartNumber({
     required String valueRaw,
     required String partType,
+    required String footprint,
   }) {
     if (PartNormalizer.isPassive(partType) || partType == 'crystal') {
       return '';
+    }
+
+    // Connectors: the `value` is usually a net/function label (UART, I2C,
+    // PWR, ...), not a part. The real connector part number lives in the
+    // footprint name (e.g. "Connector_JST:JST_XH_B4B-XH-A_1x04_..." -> B4B-XH-A).
+    if (partType == 'connector') {
+      final fromFootprint = _extractConnectorPartNumber(footprint);
+      if (fromFootprint.isNotEmpty) return fromFootprint;
     }
 
     final value = valueRaw.trim();
@@ -262,6 +272,25 @@ class KicadBomParser {
     final hasDigits = RegExp(r'\d').hasMatch(value);
     if ((hasLetters && hasDigits && value.length >= 5) || value.contains('-')) {
       return value;
+    }
+    return '';
+  }
+
+  /// Pulls a connector part number out of a KiCad footprint name.
+  ///
+  /// KiCad connector footprints embed the manufacturer part number as a token
+  /// in the footprint name, e.g. `Connector_JST:JST_XH_B4B-XH-A_1x04_P2.50mm_
+  /// Vertical` -> `B4B-XH-A`. The part-number token is recognisable as the
+  /// first underscore-separated chunk that contains a hyphen and a digit
+  /// (pin-count tokens like `1x04` and pitch tokens like `P2.50mm` have no
+  /// hyphen, so they are naturally excluded).
+  static String _extractConnectorPartNumber(String footprint) {
+    final name = footprint.split(':').last;
+    for (final token in name.split('_')) {
+      final t = token.trim();
+      if (t.contains('-') && RegExp(r'\d').hasMatch(t)) {
+        return t;
+      }
     }
     return '';
   }

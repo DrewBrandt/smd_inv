@@ -13,7 +13,10 @@ void main() {
     test('normalizeValue handles embedded notation', () {
       expect(PartNormalizer.normalizeValue('2u2'), '2.2u');
       expect(PartNormalizer.normalizeValue('100nF'), '100n');
-      expect(PartNormalizer.normalizeValue('4k7'), '4k7');
+      expect(PartNormalizer.normalizeValue('4k7'), '4.7k');
+      expect(PartNormalizer.normalizeValue('5k1'), '5.1k');
+      expect(PartNormalizer.normalizeValue('24k9'), '24.9k');
+      expect(PartNormalizer.normalizeValue('422k'), '422k');
     });
 
     test('valuesLikelyEqual compares canonical numeric values', () {

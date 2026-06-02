@@ -71,6 +71,8 @@ class BoardDoc {
   final String? color; // hex like #2D7FF9
   final String? imageUrl;
   final List<BomLine> bom;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   BoardDoc({
     required this.id,
@@ -80,6 +82,8 @@ class BoardDoc {
     this.color,
     this.imageUrl,
     required this.bom,
+    this.createdAt,
+    this.updatedAt,
   });
 
   factory BoardDoc.fromSnap(DocumentSnapshot<Map<String, dynamic>> snap) {
@@ -96,6 +100,14 @@ class BoardDoc {
           bomRaw
               .map((e) => BomLine.fromMap(Map<String, dynamic>.from(e as Map)))
               .toList(),
+      createdAt: _toDateTime(m[FirestoreFields.createdAt]),
+      updatedAt: _toDateTime(m[FirestoreFields.updatedAt]),
     );
+  }
+
+  static DateTime? _toDateTime(dynamic raw) {
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    return null;
   }
 }

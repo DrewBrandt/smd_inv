@@ -43,10 +43,8 @@ class PartNormalizer {
     s = s.replaceAll('µ', 'u').replaceAll(RegExp(r'\s+'), '');
     s = s.replaceAllMapped(RegExp(r'([unpkm])f$'), (m) => m.group(1)!);
 
-    // Keep resistor notation like 4k7/5k1 as-is for better human alignment.
-    final resistorEmbed = RegExp(r'^\d+k\d+$').hasMatch(s);
-    if (resistorEmbed) return s;
-
+    // Expand embedded-decimal notation so the unit moves to the end:
+    // resistors like 5k1 -> 5.1k, 4k7 -> 4.7k, and capacitors like 2u2 -> 2.2u.
     final embed = RegExp(r'^(\d+)([unpkmg])(\d+)$').firstMatch(s);
     if (embed != null) {
       final intPart = embed.group(1)!;

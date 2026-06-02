@@ -177,6 +177,105 @@ void main() {
     });
 
     test(
+      'flags ambiguous (still buildable) when a part matches multiple entries',
+      () async {
+        // Same passive stocked in two locations — neither has a unique
+        // identity, so the BOM line matches both entries.
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.location: 'Bin A',
+          FirestoreFields.qty: 3,
+        });
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.location: 'Bin B',
+          FirestoreFields.qty: 5,
+        });
+
+        final board = BoardDoc(
+          id: 'b8',
+          name: 'Ambiguous',
+          bom: [
+            BomLine(
+              designators: 'R1,R2',
+              qty: 2,
+              requiredAttributes: {
+                'part_type': 'resistor',
+                FirestoreFields.value: '10k',
+                'size': '0603',
+              },
+            ),
+          ],
+        );
+
+        final inventory =
+            await db.collection(FirestoreCollections.inventory).get();
+        final readiness = await ReadinessCalculator.calculate(
+          board,
+          inventorySnapshot: inventory,
+        );
+
+        // Buildable from combined stock (8 / 2 = 4), no shortfall, but flagged
+        // as ambiguous so a location must be chosen at build time.
+        expect(readiness.buildableQty, 4);
+        expect(readiness.readyPct, 1.0);
+        expect(readiness.shortfalls, isEmpty);
+        expect(readiness.ambiguousParts, hasLength(1));
+      },
+    );
+
+    test(
+      'reports shortfall (not ambiguity) when combined stock is insufficient',
+      () async {
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '4k7',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 1,
+        });
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '4k7',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 1,
+        });
+
+        final board = BoardDoc(
+          id: 'b9',
+          name: 'Short across bins',
+          bom: [
+            BomLine(
+              designators: 'R1,R2,R3,R4,R5',
+              qty: 5,
+              requiredAttributes: {
+                'part_type': 'resistor',
+                FirestoreFields.value: '4k7',
+                'size': '0603',
+              },
+            ),
+          ],
+        );
+
+        final inventory =
+            await db.collection(FirestoreCollections.inventory).get();
+        final readiness = await ReadinessCalculator.calculate(
+          board,
+          inventorySnapshot: inventory,
+        );
+
+        expect(readiness.buildableQty, 0);
+        expect(readiness.ambiguousParts, isEmpty);
+        expect(readiness.shortfalls, hasLength(1));
+        // 5 needed minus 2 combined in stock.
+        expect(readiness.shortfalls.single.qty, 3);
+      },
+    );
+
+    test(
       'calculateAll reuses one inventory snapshot for multiple boards',
       () async {
         final ref = await db.collection(FirestoreCollections.inventory).add({

@@ -189,6 +189,11 @@ class _BomImportWidgetState extends State<BomImportWidget> {
               }).toList();
         }
       }
+
+      // Statuses above are mutated in place on the existing `_parsedBom`
+      // list, so a rebuild is required for the review summary (matched /
+      // ambiguous / missing counts and per-line dots) to reflect them.
+      if (mounted) setState(() {});
     } catch (e) {
       setState(() {
         _error = 'Error matching inventory: $e';

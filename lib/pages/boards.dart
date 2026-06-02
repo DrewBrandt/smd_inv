@@ -13,11 +13,23 @@ import 'package:smd_inv/services/inventory_matcher.dart';
 import 'package:smd_inv/services/procurement_planner_service.dart';
 import 'package:smd_inv/services/readiness_calculator.dart';
 import 'package:smd_inv/widgets/board_card.dart';
+import 'package:smd_inv/widgets/searchable_part_picker.dart';
 
 import '../constants/firestore_constants.dart';
 import '../data/boards_repo.dart';
 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
+
+enum BoardSortOption {
+  nameAsc('Name (A–Z)'),
+  recentlyAdded('Recently added'),
+  recentlyUpdated('Recently updated'),
+  mostComplete('Most complete'),
+  mostBuildable('Most buildable');
+
+  const BoardSortOption(this.label);
+  final String label;
+}
 
 class BoardsPage extends StatefulWidget {
   const BoardsPage({super.key});
@@ -37,6 +49,7 @@ class _BoardsPageState extends State<BoardsPage> {
   final Map<String, int> _boardCartQtyById = <String, int>{};
   final List<ManualProcurementLine> _manualLines = <ManualProcurementLine>[];
   String _boardSearchQuery = '';
+  BoardSortOption _sortOption = BoardSortOption.nameAsc;
 
   @override
   void initState() {
@@ -72,11 +85,7 @@ class _BoardsPageState extends State<BoardsPage> {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final boards =
-                snap.data!.map(BoardDoc.fromSnap).toList()..sort(
-                  (a, b) =>
-                      a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-                );
+            final boards = snap.data!.map(BoardDoc.fromSnap).toList();
             final filteredBoards = _filterBoards(boards, _boardSearchQuery);
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -102,6 +111,10 @@ class _BoardsPageState extends State<BoardsPage> {
                       matcherIndex: matcherIndex,
                     ),
                 };
+                final sortedBoards = _sortBoards(
+                  filteredBoards,
+                  readinessByBoardId,
+                );
 
                 if (boards.isEmpty) {
                   return _buildEmptyState(canEdit);
@@ -134,9 +147,9 @@ class _BoardsPageState extends State<BoardsPage> {
                                       crossAxisSpacing: 16,
                                       mainAxisSpacing: 16,
                                     ),
-                                itemCount: filteredBoards.length,
+                                itemCount: sortedBoards.length,
                                 itemBuilder: (context, i) {
-                                  final b = filteredBoards[i];
+                                  final b = sortedBoards[i];
                                   final cartQty = _boardCartQtyById[b.id] ?? 0;
                                   final readiness =
                                       readinessByBoardId[b.id] ??
@@ -262,6 +275,8 @@ class _BoardsPageState extends State<BoardsPage> {
             children: [
               Text(title, style: Theme.of(context).textTheme.titleLarge),
               const Spacer(),
+              _buildSortControl(cs),
+              const SizedBox(width: 8),
               Chip(
                 avatar: const Icon(Icons.shopping_cart_outlined, size: 16),
                 label: Text('Cart $boardCartCount'),
@@ -299,6 +314,60 @@ class _BoardsPageState extends State<BoardsPage> {
     );
   }
 
+  Widget _buildSortControl(ColorScheme cs) {
+    return PopupMenuButton<BoardSortOption>(
+      tooltip: 'Sort boards',
+      initialValue: _sortOption,
+      onSelected: (option) {
+        if (option == _sortOption) return;
+        setState(() => _sortOption = option);
+      },
+      itemBuilder:
+          (context) =>
+              BoardSortOption.values
+                  .map(
+                    (option) => PopupMenuItem<BoardSortOption>(
+                      value: option,
+                      child: Row(
+                        children: [
+                          Icon(
+                            option == _sortOption
+                                ? Icons.check
+                                : Icons.sort,
+                            size: 16,
+                            color:
+                                option == _sortOption
+                                    ? cs.primary
+                                    : cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(option.label),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: cs.outlineVariant),
+          color: cs.surface,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.sort, size: 16),
+            const SizedBox(width: 6),
+            Text('Sort: ${_sortOption.label}'),
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_drop_down, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildNoSearchResults() {
     final cs = Theme.of(context).colorScheme;
     return Center(
@@ -319,6 +388,55 @@ class _BoardsPageState extends State<BoardsPage> {
         ],
       ),
     );
+  }
+
+  List<BoardDoc> _sortBoards(
+    List<BoardDoc> boards,
+    Map<String, Readiness> readinessByBoardId,
+  ) {
+    final sorted = List<BoardDoc>.from(boards);
+    int byName(BoardDoc a, BoardDoc b) =>
+        a.name.toLowerCase().compareTo(b.name.toLowerCase());
+
+    // Newest first; boards without a timestamp fall to the bottom.
+    int byDateDesc(DateTime? a, DateTime? b) {
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      return b.compareTo(a);
+    }
+
+    switch (_sortOption) {
+      case BoardSortOption.nameAsc:
+        sorted.sort(byName);
+      case BoardSortOption.recentlyAdded:
+        sorted.sort((a, b) {
+          final c = byDateDesc(a.createdAt, b.createdAt);
+          return c != 0 ? c : byName(a, b);
+        });
+      case BoardSortOption.recentlyUpdated:
+        sorted.sort((a, b) {
+          final c = byDateDesc(a.updatedAt, b.updatedAt);
+          return c != 0 ? c : byName(a, b);
+        });
+      case BoardSortOption.mostComplete:
+        sorted.sort((a, b) {
+          final ra = readinessByBoardId[a.id];
+          final rb = readinessByBoardId[b.id];
+          final c = (rb?.readyPct ?? 0).compareTo(ra?.readyPct ?? 0);
+          if (c != 0) return c;
+          final cq = (rb?.buildableQty ?? 0).compareTo(ra?.buildableQty ?? 0);
+          return cq != 0 ? cq : byName(a, b);
+        });
+      case BoardSortOption.mostBuildable:
+        sorted.sort((a, b) {
+          final ra = readinessByBoardId[a.id];
+          final rb = readinessByBoardId[b.id];
+          final c = (rb?.buildableQty ?? 0).compareTo(ra?.buildableQty ?? 0);
+          return c != 0 ? c : byName(a, b);
+        });
+    }
+    return sorted;
   }
 
   List<BoardDoc> _filterBoards(List<BoardDoc> boards, String rawQuery) {
@@ -1394,29 +1512,46 @@ class _BoardBuildIssueCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          DropdownButtonFormField<String?>(
-            initialValue: selectedDocId,
-            decoration: const InputDecoration(
-              labelText: 'Substitute inventory item',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              const DropdownMenuItem<String?>(
-                value: null,
-                child: Text('Choose substitute...'),
+          if (skipped)
+            InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Substitute inventory item',
+                border: OutlineInputBorder(),
+                enabled: false,
               ),
-              ...inventoryDocs.map((doc) {
-                return DropdownMenuItem<String?>(
-                  value: doc.id,
-                  child: Text(
-                    _inventoryLabel(doc),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+              child: Text(
+                'Line skipped',
+                style: TextStyle(color: cs.onSurfaceVariant),
+              ),
+            )
+          else
+            SearchablePartPicker(
+              key: ValueKey('substitute-${issue.lineIndex}'),
+              outlined: true,
+              autoOpen: false,
+              labelText: 'Substitute inventory item',
+              currentValue: selectedDocId ?? '',
+              colorScheme: cs,
+              rowData: {
+                FirestoreFields.requiredAttributes:
+                    issue.line.requiredAttributes,
+              },
+              optionsProvider:
+                  (_) async =>
+                      inventoryDocs
+                          .map(
+                            (doc) => SearchablePartPicker.inventoryDocToOption(
+                              doc.id,
+                              doc.data(),
+                            ),
+                          )
+                          .toList(),
+              onChanged: (value) {
+                onSubstituteChanged(
+                  (value == null || value.isEmpty) ? null : value,
                 );
-              }),
-            ],
-            onChanged: skipped ? null : onSubstituteChanged,
-          ),
+              },
+            ),
           const SizedBox(height: 8),
           CheckboxListTile(
             value: skipped,
