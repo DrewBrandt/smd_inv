@@ -78,7 +78,19 @@ class _SearchablePartPickerState extends State<SearchablePartPicker> {
     super.initState();
     _searchController.addListener(_filterOptions);
     _focusNode.onKeyEvent = _handleKeyEvent;
+    _focusNode.addListener(_onFocusChange);
     _loadOptions();
+  }
+
+  /// Dismiss the results overlay when the field loses focus, so clicking away
+  /// (e.g. onto the "Skip this BOM line" checkbox) doesn't leave the dropdown
+  /// floating on top and blocking other controls. Deferred slightly because
+  /// tapping an option momentarily moves focus before its onTap is handled.
+  void _onFocusChange() {
+    if (_focusNode.hasFocus) return;
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (mounted && !_focusNode.hasFocus) _removeOverlay();
+    });
   }
 
   /// Swallow Escape while the results overlay is open so it dismisses just the
