@@ -17,6 +17,29 @@ class KicadBomParser {
     'Exclude from Board',
   ];
 
+  /// Net/function labels that frequently appear in a KiCad `Value` column for
+  /// connectors and LEDs (e.g. the silkscreen/net name rather than a part).
+  /// These are not component values and must not be matched or searched on.
+  static const _netLabels = <String>{
+    'gps',
+    'sens',
+    'pwr',
+    'sw',
+    'uart',
+    'i2c',
+    'usb',
+    'sma',
+    'pyro',
+    'bat',
+    'buzzer',
+    'mountinghole',
+    '~',
+  };
+
+  static bool _isNetLabel(String value) {
+    return _netLabels.contains(value.trim().toLowerCase());
+  }
+
   static KicadBomParseResult parse(CsvParseResult parseResult) {
     final parsed = <Map<String, dynamic>>[];
     int skipped = 0;
@@ -78,13 +101,24 @@ class KicadBomParser {
       }
 
       final firstRef = _firstDesignator(designators);
-      final partType = _detectPartType(firstRef, valueRaw: valueRaw);
+      final partType = _detectPartType(
+        firstRef,
+        valueRaw: valueRaw,
+        footprint: footprint,
+      );
       final category = _detectCategory(partType);
       final packageInfo = _extractPackage(
         partType: partType,
         footprint: footprint,
       );
-      final normalizedValue = PartNormalizer.normalizeValue(valueRaw);
+      // For LEDs only the footprint size matters — colour is left ambiguous and
+      // chosen at build time — so never store a value to match/search on. For
+      // other parts, drop net/function labels (PWR, I2C, …) which are wiring
+      // annotations rather than component values.
+      final normalizedValue =
+          (partType == 'led' || _isNetLabel(valueRaw))
+              ? ''
+              : PartNormalizer.normalizeValue(valueRaw);
       final inferredPartNumber = _extractLikelyPartNumber(
         valueRaw: valueRaw,
         partType: partType,
@@ -176,7 +210,16 @@ class KicadBomParser {
     return designators.split(',').first.trim().toUpperCase();
   }
 
-  static String _detectPartType(String ref, {required String valueRaw}) {
+  static String _detectPartType(
+    String ref, {
+    required String valueRaw,
+    required String footprint,
+  }) {
+    // KiCad commonly gives LEDs a "D…" reference, so an LED footprint is the
+    // most reliable signal and wins over the reference-prefix heuristic
+    // (otherwise "D1" with an LED_SMD footprint is misclassified as a diode).
+    if (footprint.toUpperCase().contains('LED')) return 'led';
+
     if (ref.startsWith('LED')) return 'led';
     if (ref.startsWith('C')) return 'capacitor';
     if (ref.startsWith('R')) return 'resistor';
@@ -250,23 +293,7 @@ class KicadBomParser {
 
     final value = valueRaw.trim();
     if (value.isEmpty) return '';
-    final normalized = value.toLowerCase();
-    const labels = {
-      'gps',
-      'sens',
-      'pwr',
-      'sw',
-      'uart',
-      'i2c',
-      'usb',
-      'sma',
-      'pyro',
-      'bat',
-      'buzzer',
-      'mountinghole',
-      '~',
-    };
-    if (labels.contains(normalized)) return '';
+    if (_isNetLabel(value)) return '';
 
     final hasLetters = RegExp(r'[A-Za-z]').hasMatch(value);
     final hasDigits = RegExp(r'\d').hasMatch(value);

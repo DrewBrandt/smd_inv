@@ -66,6 +66,36 @@ U2,1,MS5611-01BA,Package_LGA:LGA-8_3x5mm_P1.25mm''';
       expect(u2[FirestoreFields.partNumber], 'MS5611-01BA');
     });
 
+    test('classifies a D-referenced LED footprint as led and drops value', () {
+      // KiCad gives LEDs a "D…" reference; the footprint is the reliable signal.
+      // For LEDs only the size matters (colour is chosen at build time), so the
+      // value is always dropped — whether it's a net label or a real colour.
+      const csv = '''Reference,Qty,Value,Footprint
+D1,1,PWR,LED_SMD:LED_0805_2012Metric
+D2,1,red,LED_SMD:LED_0603_1608Metric''';
+
+      final parsed = CsvParserService.parse(
+        csv,
+        expectedColumns: KicadBomParser.expectedColumns,
+      );
+      final result = KicadBomParser.parse(parsed);
+
+      final d1 =
+          result.lines.first[FirestoreFields.requiredAttributes]
+              as Map<String, dynamic>;
+      final d2 =
+          result.lines.last[FirestoreFields.requiredAttributes]
+              as Map<String, dynamic>;
+
+      expect(d1['part_type'], 'led');
+      expect(d1['size'], '0805');
+      expect(d1[FirestoreFields.value], '');
+
+      expect(d2['part_type'], 'led');
+      expect(d2['size'], '0603');
+      expect(d2[FirestoreFields.value], '');
+    });
+
     test('supports alternate KiCad column order', () {
       const csv =
           '''"Reference","Qty","Value","DNP","Exclude from BOM","Footprint"
