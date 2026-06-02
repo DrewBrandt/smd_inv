@@ -46,6 +46,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
 
   List<Map<String, dynamic>> _bom = [];
   QuerySnapshot<Map<String, dynamic>>? _inventoryCache;
+  InventoryMatcherIndex? _matcherIndex;
 
   @override
   void initState() {
@@ -60,8 +61,55 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
   }
 
   Future<void> _loadInventoryCache() async {
-    _inventoryCache =
-        await _db.collection(FirestoreCollections.inventory).get();
+    final snap = await _db.collection(FirestoreCollections.inventory).get();
+    _inventoryCache = snap;
+    _matcherIndex = InventoryMatcherIndex.fromSnapshot(snap);
+    if (mounted) setState(_recomputeStock);
+  }
+
+  /// Refreshes the per-line "In Stock" figure from the inventory cache so the
+  /// editor shows how many of each paired part are available. Cheap (map/index
+  /// lookups) and safe to call whenever the BOM or inventory changes.
+  void _recomputeStock() {
+    for (final line in _bom) {
+      line['_stock'] = _stockLabelForLine(line);
+    }
+  }
+
+  /// Stock figure shown for a BOM line. Prefers the explicitly paired
+  /// component; when a line isn't paired it falls back to what the matcher
+  /// would resolve so ambiguous/auto-matched lines still show availability.
+  String _stockLabelForLine(Map<String, dynamic> line) {
+    final cache = _inventoryCache;
+    if (cache == null) return '';
+    final attrs =
+        line[FirestoreFields.requiredAttributes] as Map<String, dynamic>?;
+    if (attrs == null) return '—';
+
+    final ref =
+        attrs[FirestoreFields.selectedComponentRef]?.toString().trim() ?? '';
+    if (ref.isNotEmpty) {
+      for (final doc in cache.docs) {
+        if (doc.id == ref) {
+          final qty = (doc.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+          return '$qty';
+        }
+      }
+      return 'missing';
+    }
+
+    final index = _matcherIndex;
+    if (index == null) return '—';
+    final matches = InventoryMatcher.findMatchesSync(
+      bomAttributes: attrs,
+      matcherIndex: index,
+    );
+    if (matches.isEmpty) return '0';
+    final total = matches.fold<int>(
+      0,
+      (acc, m) => acc + ((m.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0),
+    );
+    return matches.length == 1 ? '$total' : '$total (${matches.length} opts)';
   }
 
   void _markDirty() {
@@ -100,6 +148,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
             map['_ignored'] ??= false;
             return map;
           }).toList();
+      _recomputeStock();
       _dirty = false;
     });
   }
@@ -404,6 +453,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
       }
 
       setState(() {
+        _recomputeStock();
         _isMatching = false;
         _dirty = true;
       });
@@ -444,6 +494,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
           'selected_component_ref': null,
         },
         '_match_status': 'missing',
+        '_stock': '0',
         '_ignored': false,
       });
       _markDirty();
@@ -482,6 +533,12 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
             )
             .toList();
       },
+    ),
+    ColumnSpec(
+      field: '_stock',
+      label: 'In Stock',
+      editable: false,
+      maxPercentWidth: 10,
     ),
     ColumnSpec(field: 'designators', label: 'Designators'),
     ColumnSpec(field: 'qty', label: 'Qty', kind: CellKind.integer),
@@ -689,7 +746,10 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
                               frozenColumnsCount: 2,
                               allowEditing: canEdit,
                               onRowsChanged: (updated) {
-                                setState(() => _bom = updated);
+                                setState(() {
+                                  _bom = updated;
+                                  _recomputeStock();
+                                });
                                 _markDirty();
                               },
                             ),

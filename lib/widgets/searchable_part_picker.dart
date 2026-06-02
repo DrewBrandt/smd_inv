@@ -1,5 +1,6 @@
 // lib/widgets/searchable_part_picker.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../constants/firestore_constants.dart';
 
 /// A searchable inventory part picker with an autofilling search box.
@@ -76,7 +77,22 @@ class _SearchablePartPickerState extends State<SearchablePartPicker> {
   void initState() {
     super.initState();
     _searchController.addListener(_filterOptions);
+    _focusNode.onKeyEvent = _handleKeyEvent;
     _loadOptions();
+  }
+
+  /// Swallow Escape while the results overlay is open so it dismisses just the
+  /// dropdown, not the enclosing dialog (e.g. the board-build "Resolve BOM"
+  /// dialog). When the overlay is already closed, let Escape propagate so the
+  /// dialog can close as usual.
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape &&
+        _overlayEntry != null) {
+      _removeOverlay();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   @override
