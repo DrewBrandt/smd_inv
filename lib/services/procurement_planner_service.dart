@@ -30,9 +30,11 @@ class ProcurementPlannerService {
 
     final requiredByDocId = <String, int>{};
     final requiredByDocBoards = <String, Set<String>>{};
+    final lowStockThresholdByDocId = <String, int>{};
 
     final fallbackByKey = <String, _FallbackLine>{};
     final issueByKey = <String, _IssueAccum>{};
+    final ambiguousByKey = <String, _AmbiguousAccum>{};
 
     void addIssue({
       required ProcurementIssueType type,
@@ -123,12 +125,22 @@ class ProcurementPlannerService {
             }
           }
           if (chosen == null) {
-            addIssue(
-              type: ProcurementIssueType.ambiguous,
-              label: InventoryMatcher.makePartLabel(attrs),
-              qty: requiredQty,
-              boardName: boardName,
+            final label = InventoryMatcher.makePartLabel(attrs);
+            final candidateIds = matches.map((m) => m.id).toList()..sort();
+            final key =
+                'ambiguous|${label.toLowerCase()}|${candidateIds.join(',')}';
+            final availableQty = matches.fold<int>(
+              0,
+              (total, match) =>
+                  total +
+                  ((match.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0),
             );
+            final item = ambiguousByKey.putIfAbsent(
+              key,
+              () => _AmbiguousAccum(label: label, availableQty: availableQty),
+            );
+            item.requiredQty += requiredQty;
+            item.boards.add(boardName);
             continue;
           }
         }
@@ -138,7 +150,31 @@ class ProcurementPlannerService {
         requiredByDocBoards
             .putIfAbsent(chosen.id, () => <String>{})
             .add(boardName);
+        final threshold = _lowStockThreshold(
+          attrs['part_type']?.toString() ?? '',
+          line.qty,
+        );
+        if (threshold != null) {
+          lowStockThresholdByDocId[chosen.id] = max(
+            lowStockThresholdByDocId[chosen.id] ?? 0,
+            threshold,
+          );
+        }
       }
+    }
+
+    for (final item in ambiguousByKey.values) {
+      if (item.availableQty >= item.requiredQty) continue;
+      final key = 'ambiguous|${item.label.toLowerCase()}';
+      final issue = issueByKey.putIfAbsent(
+        key,
+        () => _IssueAccum(
+          type: ProcurementIssueType.ambiguous,
+          label: item.label,
+        ),
+      );
+      issue.requiredQty += item.requiredQty;
+      issue.boards.addAll(item.boards);
     }
 
     final lines = <ProcurementLine>[];
@@ -153,6 +189,7 @@ class ProcurementPlannerService {
       final partNumber =
           (data[FirestoreFields.partNumber]?.toString() ?? '').trim();
       final vendorLink = _cleanString(data[FirestoreFields.vendorLink]);
+      final partType = _cleanString(data[FirestoreFields.type]);
       lines.add(
         ProcurementLine(
           source: ProcurementLineSource.inventory,
@@ -162,12 +199,15 @@ class ProcurementPlannerService {
             vendorLink,
             fallbackPartNumber: partNumber,
           ),
-          partType: _cleanString(data[FirestoreFields.type]),
+          partType: partType,
           package: _cleanString(data[FirestoreFields.package]),
           description: _cleanString(data[FirestoreFields.description]),
           requiredQty: requiredQty,
           inStockQty: inStock,
           shortageQty: shortage,
+          lowStockThreshold:
+              lowStockThresholdByDocId[entry.key] ??
+              _lowStockThreshold(partType, 1),
           unitPrice: (data[FirestoreFields.pricePerUnit] as num?)?.toDouble(),
           vendorLink: vendorLink,
           boardNames:
@@ -329,6 +369,20 @@ class ProcurementPlannerService {
     if (value == null) return '';
     return value.toString().trim();
   }
+
+  static int? _lowStockThreshold(String rawPartType, int perBoardQty) {
+    final partType = rawPartType.trim().toLowerCase();
+    if (_isPassiveType(partType)) return 10;
+    if (partType == 'ic') return max(1, perBoardQty);
+    return null;
+  }
+
+  static bool _isPassiveType(String partType) {
+    return switch (partType) {
+      'resistor' || 'capacitor' || 'inductor' || 'diode' || 'led' => true,
+      _ => false,
+    };
+  }
 }
 
 class _IssueAccum {
@@ -354,4 +408,13 @@ class _FallbackLine {
     required this.package,
     required this.description,
   });
+}
+
+class _AmbiguousAccum {
+  final String label;
+  final int availableQty;
+  int requiredQty = 0;
+  final Set<String> boards = <String>{};
+
+  _AmbiguousAccum({required this.label, required this.availableQty});
 }

@@ -127,56 +127,105 @@ void main() {
       expect(line.shortageQty, 3);
     });
 
-    test('buildPlan emits ambiguous issue without auto-selecting', () async {
-      await db.collection(FirestoreCollections.inventory).add({
-        FirestoreFields.partNumber: 'R-A',
-        FirestoreFields.type: 'resistor',
-        FirestoreFields.value: '10k',
-        FirestoreFields.package: '0603',
-        FirestoreFields.qty: 100,
-      });
-      await db.collection(FirestoreCollections.inventory).add({
-        FirestoreFields.partNumber: 'R-B',
-        FirestoreFields.type: 'resistor',
-        FirestoreFields.value: '10k',
-        FirestoreFields.package: '0603',
-        FirestoreFields.qty: 100,
-      });
+    test(
+      'buildPlan ignores ambiguous matches when combined stock is enough',
+      () async {
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.partNumber: 'R-A',
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 100,
+        });
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.partNumber: 'R-B',
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 100,
+        });
 
-      final board = BoardDoc(
-        id: 'b-amb',
-        name: 'Ambiguous Board',
-        bom: [
-          BomLine(
-            designators: 'R1',
-            qty: 1,
-            requiredAttributes: {
-              'part_type': 'resistor',
-              FirestoreFields.value: '10k',
-              'size': '0603',
-            },
-          ),
-        ],
-      );
+        final board = BoardDoc(
+          id: 'b-amb',
+          name: 'Ambiguous Board',
+          bom: [
+            BomLine(
+              designators: 'R1',
+              qty: 1,
+              requiredAttributes: {
+                'part_type': 'resistor',
+                FirestoreFields.value: '10k',
+                'size': '0603',
+              },
+            ),
+          ],
+        );
 
-      final plan = await service.buildPlan(
-        boardOrders: [BoardOrderRequest(board: board, quantity: 1)],
-      );
+        final plan = await service.buildPlan(
+          boardOrders: [BoardOrderRequest(board: board, quantity: 1)],
+        );
 
-      expect(plan.ambiguousCount, 1);
-      expect(plan.lines, isEmpty);
-    });
+        expect(plan.ambiguousCount, 0);
+        expect(plan.lines, isEmpty);
+      },
+    );
+
+    test(
+      'buildPlan emits ambiguous issue when combined stock is short',
+      () async {
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.partNumber: 'R-A',
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 1,
+        });
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.partNumber: 'R-B',
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 1,
+        });
+
+        final board = BoardDoc(
+          id: 'b-amb-short',
+          name: 'Ambiguous Short',
+          bom: [
+            BomLine(
+              designators: 'R1,R2,R3',
+              qty: 3,
+              requiredAttributes: {
+                'part_type': 'resistor',
+                FirestoreFields.value: '10k',
+                'size': '0603',
+              },
+            ),
+          ],
+        );
+
+        final plan = await service.buildPlan(
+          boardOrders: [BoardOrderRequest(board: board, quantity: 1)],
+        );
+
+        expect(plan.ambiguousCount, 1);
+        expect(plan.issues.single.requiredQty, 3);
+        expect(plan.lines, isEmpty);
+      },
+    );
 
     test(
       'buildPlan resolves ambiguous matches when selected_component_ref is valid',
       () async {
-        final selected = await db.collection(FirestoreCollections.inventory).add({
-          FirestoreFields.partNumber: 'IC-A',
-          FirestoreFields.type: 'ic',
-          FirestoreFields.value: 'LMV321',
-          FirestoreFields.package: 'SOT-23-5',
-          FirestoreFields.qty: 1,
-        });
+        final selected = await db
+            .collection(FirestoreCollections.inventory)
+            .add({
+              FirestoreFields.partNumber: 'IC-A',
+              FirestoreFields.type: 'ic',
+              FirestoreFields.value: 'LMV321',
+              FirestoreFields.package: 'SOT-23-5',
+              FirestoreFields.qty: 1,
+            });
         await db.collection(FirestoreCollections.inventory).add({
           FirestoreFields.partNumber: 'IC-B',
           FirestoreFields.type: 'ic',
@@ -214,99 +263,43 @@ void main() {
       },
     );
 
-    test('buildPlan sorts issues and lines deterministically on ties', () async {
-      await db.collection(FirestoreCollections.inventory).add({
-        FirestoreFields.partNumber: 'ZZ-TIE',
+    test('buildPlan reports low stock for stocked passives and ICs', () async {
+      final resistorRef = await db
+          .collection(FirestoreCollections.inventory)
+          .add({
+            FirestoreFields.partNumber: 'R-LOW',
+            FirestoreFields.type: 'resistor',
+            FirestoreFields.value: '1k',
+            FirestoreFields.package: '0603',
+            FirestoreFields.qty: 11,
+          });
+      final icRef = await db.collection(FirestoreCollections.inventory).add({
+        FirestoreFields.partNumber: 'U-LOW',
         FirestoreFields.type: 'ic',
-        FirestoreFields.value: 'V1',
+        FirestoreFields.value: 'DRV',
         FirestoreFields.package: 'QFN',
-        FirestoreFields.qty: 0,
-      });
-      await db.collection(FirestoreCollections.inventory).add({
-        FirestoreFields.partNumber: 'AA-TIE',
-        FirestoreFields.type: 'ic',
-        FirestoreFields.value: 'V2',
-        FirestoreFields.package: 'QFN',
-        FirestoreFields.qty: 0,
+        FirestoreFields.qty: 3,
       });
 
-      final boardA = BoardDoc(
-        id: 'b1',
-        name: 'Board A',
-        bom: [
-          BomLine(
-            designators: 'U1',
-            qty: 1,
-            requiredAttributes: {
-              FirestoreFields.partNumber: 'ZZ-TIE',
-              'part_type': 'ic',
-            },
-          ),
-          BomLine(
-            designators: 'U2',
-            qty: 1,
-            requiredAttributes: {
-              FirestoreFields.partNumber: 'AA-TIE',
-              'part_type': 'ic',
-            },
-          ),
-          BomLine(
-            designators: 'X1',
-            qty: 1,
-            requiredAttributes: {'part_type': 'ic', FirestoreFields.partNumber: 'MISS-B'},
-          ),
-        ],
-      );
-      final boardB = BoardDoc(
-        id: 'b2',
-        name: 'Board B',
-        bom: [
-          BomLine(
-            designators: 'X2',
-            qty: 1,
-            requiredAttributes: {'part_type': 'ic', FirestoreFields.partNumber: 'MISS-A'},
-          ),
-        ],
-      );
-
-      final plan = await service.buildPlan(
-        boardOrders: [
-          BoardOrderRequest(board: boardA, quantity: 1),
-          BoardOrderRequest(board: boardB, quantity: 1),
-        ],
-      );
-
-      expect(plan.lines, hasLength(4));
-      expect(plan.lines[0].partNumber, 'AA-TIE');
-      expect(plan.lines[1].partNumber, 'ZZ-TIE');
-      expect(plan.lines[2].source, ProcurementLineSource.bomFallback);
-      expect(plan.lines[3].source, ProcurementLineSource.bomFallback);
-      expect(plan.lines[2].partNumber, 'MISS-A');
-      expect(plan.lines[3].partNumber, 'MISS-B');
-
-      expect(plan.issues, hasLength(2));
-      expect(plan.issues[0].partLabel, 'MISS-A');
-      expect(plan.issues[1].partLabel, 'MISS-B');
-    });
-
-    test('buildPlan fallback description uses part type/value/package when part number missing', () async {
       final board = BoardDoc(
-        id: 'b-fallback-desc',
-        name: 'Fallback Desc',
+        id: 'b-low',
+        name: 'Low Stock Board',
         bom: [
           BomLine(
-            designators: 'R1',
-            qty: 1,
+            designators: 'R1,R2',
+            qty: 2,
             requiredAttributes: {
+              FirestoreFields.selectedComponentRef: resistorRef.id,
               'part_type': 'resistor',
-              FirestoreFields.value: '10k',
-              'size': '0603',
             },
           ),
           BomLine(
-            designators: 'U9',
-            qty: 1,
-            requiredAttributes: const {},
+            designators: 'U1,U2',
+            qty: 2,
+            requiredAttributes: {
+              FirestoreFields.selectedComponentRef: icRef.id,
+              'part_type': 'ic',
+            },
           ),
         ],
       );
@@ -315,15 +308,139 @@ void main() {
         boardOrders: [BoardOrderRequest(board: board, quantity: 1)],
       );
 
-      expect(plan.lines, hasLength(2));
-      final resistorFallback = plan.lines.firstWhere(
-        (l) => l.partType == 'resistor',
+      expect(plan.orderableLines, isEmpty);
+      expect(plan.lowStockLines, hasLength(2));
+      final resistor = plan.lowStockLines.firstWhere(
+        (line) => line.inventoryDocId == resistorRef.id,
       );
-      expect(resistorFallback.description, 'resistor 10k 0603');
+      expect(resistor.remainingAfterRequired, 9);
+      expect(resistor.lowStockThreshold, 10);
 
-      final unmapped = plan.lines.firstWhere((l) => l.partType.isEmpty);
-      expect(unmapped.description, 'Unmapped BOM part');
+      final ic = plan.lowStockLines.firstWhere(
+        (line) => line.inventoryDocId == icRef.id,
+      );
+      expect(ic.remainingAfterRequired, 1);
+      expect(ic.lowStockThreshold, 2);
     });
+
+    test(
+      'buildPlan sorts issues and lines deterministically on ties',
+      () async {
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.partNumber: 'ZZ-TIE',
+          FirestoreFields.type: 'ic',
+          FirestoreFields.value: 'V1',
+          FirestoreFields.package: 'QFN',
+          FirestoreFields.qty: 0,
+        });
+        await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.partNumber: 'AA-TIE',
+          FirestoreFields.type: 'ic',
+          FirestoreFields.value: 'V2',
+          FirestoreFields.package: 'QFN',
+          FirestoreFields.qty: 0,
+        });
+
+        final boardA = BoardDoc(
+          id: 'b1',
+          name: 'Board A',
+          bom: [
+            BomLine(
+              designators: 'U1',
+              qty: 1,
+              requiredAttributes: {
+                FirestoreFields.partNumber: 'ZZ-TIE',
+                'part_type': 'ic',
+              },
+            ),
+            BomLine(
+              designators: 'U2',
+              qty: 1,
+              requiredAttributes: {
+                FirestoreFields.partNumber: 'AA-TIE',
+                'part_type': 'ic',
+              },
+            ),
+            BomLine(
+              designators: 'X1',
+              qty: 1,
+              requiredAttributes: {
+                'part_type': 'ic',
+                FirestoreFields.partNumber: 'MISS-B',
+              },
+            ),
+          ],
+        );
+        final boardB = BoardDoc(
+          id: 'b2',
+          name: 'Board B',
+          bom: [
+            BomLine(
+              designators: 'X2',
+              qty: 1,
+              requiredAttributes: {
+                'part_type': 'ic',
+                FirestoreFields.partNumber: 'MISS-A',
+              },
+            ),
+          ],
+        );
+
+        final plan = await service.buildPlan(
+          boardOrders: [
+            BoardOrderRequest(board: boardA, quantity: 1),
+            BoardOrderRequest(board: boardB, quantity: 1),
+          ],
+        );
+
+        expect(plan.lines, hasLength(4));
+        expect(plan.lines[0].partNumber, 'AA-TIE');
+        expect(plan.lines[1].partNumber, 'ZZ-TIE');
+        expect(plan.lines[2].source, ProcurementLineSource.bomFallback);
+        expect(plan.lines[3].source, ProcurementLineSource.bomFallback);
+        expect(plan.lines[2].partNumber, 'MISS-A');
+        expect(plan.lines[3].partNumber, 'MISS-B');
+
+        expect(plan.issues, hasLength(2));
+        expect(plan.issues[0].partLabel, 'MISS-A');
+        expect(plan.issues[1].partLabel, 'MISS-B');
+      },
+    );
+
+    test(
+      'buildPlan fallback description uses part type/value/package when part number missing',
+      () async {
+        final board = BoardDoc(
+          id: 'b-fallback-desc',
+          name: 'Fallback Desc',
+          bom: [
+            BomLine(
+              designators: 'R1',
+              qty: 1,
+              requiredAttributes: {
+                'part_type': 'resistor',
+                FirestoreFields.value: '10k',
+                'size': '0603',
+              },
+            ),
+            BomLine(designators: 'U9', qty: 1, requiredAttributes: const {}),
+          ],
+        );
+
+        final plan = await service.buildPlan(
+          boardOrders: [BoardOrderRequest(board: board, quantity: 1)],
+        );
+
+        expect(plan.lines, hasLength(2));
+        final resistorFallback = plan.lines.firstWhere(
+          (l) => l.partType == 'resistor',
+        );
+        expect(resistorFallback.description, 'resistor 10k 0603');
+
+        final unmapped = plan.lines.firstWhere((l) => l.partType.isEmpty);
+        expect(unmapped.description, 'Unmapped BOM part');
+      },
+    );
 
     test('extractDigiKeyPartNumber parses DigiKey URLs and fallback', () {
       expect(
@@ -388,39 +505,42 @@ void main() {
       expect(quick, contains('497-15115-1-ND,3'));
     });
 
-    test('mergeManualLines sorts equal shortages by source then part number', () {
-      const base = ProcurementPlan(
-        lines: [
-          ProcurementLine(
-            source: ProcurementLineSource.inventory,
-            inventoryDocId: 'x',
-            partNumber: 'ZZZ',
-            digikeyPartNumber: 'ZZZ-1-ND',
-            partType: 'ic',
-            package: '',
-            description: 'inv',
-            requiredQty: 2,
-            inStockQty: 0,
-            shortageQty: 2,
-            unitPrice: null,
-            vendorLink: null,
-            boardNames: ['B'],
+    test(
+      'mergeManualLines sorts equal shortages by source then part number',
+      () {
+        const base = ProcurementPlan(
+          lines: [
+            ProcurementLine(
+              source: ProcurementLineSource.inventory,
+              inventoryDocId: 'x',
+              partNumber: 'ZZZ',
+              digikeyPartNumber: 'ZZZ-1-ND',
+              partType: 'ic',
+              package: '',
+              description: 'inv',
+              requiredQty: 2,
+              inStockQty: 0,
+              shortageQty: 2,
+              unitPrice: null,
+              vendorLink: null,
+              boardNames: ['B'],
+            ),
+          ],
+          issues: [],
+        );
+        final merged = ProcurementPlannerService.mergeManualLines(base, const [
+          ManualProcurementLine(
+            partNumber: 'AAA',
+            digikeyPartNumber: 'AAA-1-ND',
+            description: 'manual',
+            quantity: 2,
           ),
-        ],
-        issues: [],
-      );
-      final merged = ProcurementPlannerService.mergeManualLines(base, const [
-        ManualProcurementLine(
-          partNumber: 'AAA',
-          digikeyPartNumber: 'AAA-1-ND',
-          description: 'manual',
-          quantity: 2,
-        ),
-      ]);
+        ]);
 
-      expect(merged.lines, hasLength(2));
-      expect(merged.lines[0].source, ProcurementLineSource.inventory);
-      expect(merged.lines[1].source, ProcurementLineSource.manual);
-    });
+        expect(merged.lines, hasLength(2));
+        expect(merged.lines[0].source, ProcurementLineSource.inventory);
+        expect(merged.lines[1].source, ProcurementLineSource.manual);
+      },
+    );
   });
 }

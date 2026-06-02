@@ -2,6 +2,8 @@ import 'package:csv/csv.dart';
 
 import 'board.dart';
 
+const Object _unsetProcurementValue = Object();
+
 enum ProcurementIssueType { unresolved, ambiguous }
 
 class BoardOrderRequest {
@@ -69,6 +71,8 @@ class ProcurementLine {
   final int requiredQty;
   final int inStockQty;
   final int shortageQty;
+  final int purchaseQty;
+  final int? lowStockThreshold;
   final double? unitPrice;
   final String? vendorLink;
   final List<String> boardNames;
@@ -84,12 +88,26 @@ class ProcurementLine {
     required this.requiredQty,
     required this.inStockQty,
     required this.shortageQty,
+    int? purchaseQty,
+    this.lowStockThreshold,
     required this.unitPrice,
     required this.vendorLink,
     required this.boardNames,
-  });
+  }) : purchaseQty = purchaseQty ?? shortageQty;
 
-  bool get needsOrder => shortageQty > 0;
+  bool get needsOrder => purchaseQty > 0;
+
+  int get remainingAfterRequired => inStockQty - requiredQty;
+
+  bool get isLowStock =>
+      !needsOrder &&
+      source == ProcurementLineSource.inventory &&
+      shortageQty == 0 &&
+      lowStockThreshold != null &&
+      remainingAfterRequired < lowStockThreshold!;
+
+  bool get hasDigiKeyPartNumber =>
+      (digikeyPartNumber?.trim().isNotEmpty ?? false);
 
   bool get hasOrderIdentifier {
     final id = preferredOrderIdentifier;
@@ -103,8 +121,34 @@ class ProcurementLine {
   }
 
   double? get shortageExtendedCost {
-    if (unitPrice == null || shortageQty <= 0) return null;
-    return unitPrice! * shortageQty;
+    if (unitPrice == null || purchaseQty <= 0) return null;
+    return unitPrice! * purchaseQty;
+  }
+
+  ProcurementLine copyWith({
+    Object? digikeyPartNumber = _unsetProcurementValue,
+    int? purchaseQty,
+  }) {
+    return ProcurementLine(
+      source: source,
+      inventoryDocId: inventoryDocId,
+      partNumber: partNumber,
+      digikeyPartNumber:
+          identical(digikeyPartNumber, _unsetProcurementValue)
+              ? this.digikeyPartNumber
+              : digikeyPartNumber as String?,
+      partType: partType,
+      package: package,
+      description: description,
+      requiredQty: requiredQty,
+      inStockQty: inStockQty,
+      shortageQty: shortageQty,
+      purchaseQty: purchaseQty ?? this.purchaseQty,
+      lowStockThreshold: lowStockThreshold,
+      unitPrice: unitPrice,
+      vendorLink: vendorLink,
+      boardNames: boardNames,
+    );
   }
 }
 
@@ -117,6 +161,9 @@ class ProcurementPlan {
   List<ProcurementLine> get orderableLines =>
       lines.where((l) => l.needsOrder).toList(growable: false);
 
+  List<ProcurementLine> get lowStockLines =>
+      lines.where((l) => l.isLowStock).toList(growable: false);
+
   List<ProcurementLine> get exportableLines =>
       orderableLines.where((l) => l.hasOrderIdentifier).toList(growable: false);
 
@@ -124,7 +171,7 @@ class ProcurementPlan {
       lines.fold(0, (sum, line) => sum + line.requiredQty);
 
   int get totalShortageQty =>
-      lines.fold(0, (sum, line) => sum + line.shortageQty);
+      lines.fold(0, (sum, line) => sum + line.purchaseQty);
 
   int get unresolvedCount =>
       issues.where((i) => i.type == ProcurementIssueType.unresolved).length;
@@ -153,7 +200,7 @@ class ProcurementPlan {
       rows.add([
         line.digikeyPartNumber ?? '',
         line.partNumber,
-        line.shortageQty,
+        line.purchaseQty,
         line.boardNames.join('; '),
         line.description,
         line.vendorLink ?? '',
@@ -166,7 +213,7 @@ class ProcurementPlan {
   String toQuickOrderText() {
     final buffer = StringBuffer();
     for (final line in exportableLines) {
-      buffer.writeln('${line.preferredOrderIdentifier},${line.shortageQty}');
+      buffer.writeln('${line.preferredOrderIdentifier},${line.purchaseQty}');
     }
     return buffer.toString().trimRight();
   }

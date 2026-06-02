@@ -56,6 +56,9 @@ class _BoardsPageState extends State<BoardsPage> {
 
   final Map<String, int> _boardCartQtyById = <String, int>{};
   final List<ManualProcurementLine> _manualLines = <ManualProcurementLine>[];
+  final Map<String, int> _purchaseQtyOverrides = <String, int>{};
+  final Map<String, String> _digikeyPnOverrides = <String, String>{};
+  final Set<String> _deletedPlannerLineKeys = <String>{};
   String _boardSearchQuery = '';
   BoardSortOption _sortOption = BoardSortOption.nameAsc;
 
@@ -143,82 +146,83 @@ class _BoardsPageState extends State<BoardsPage> {
                   return _buildEmptyState(canEdit);
                 }
 
-                return Column(
-                  children: [
-                    if (!canEdit) _buildViewOnlyBanner(),
-                    _buildHeader(
-                      canEdit,
-                      totalBoardCount: boards.length,
-                      visibleBoardCount: filteredBoards.length,
+                return CustomScrollView(
+                  slivers: [
+                    if (!canEdit)
+                      SliverToBoxAdapter(child: _buildViewOnlyBanner()),
+                    SliverToBoxAdapter(
+                      child: _buildHeader(
+                        canEdit,
+                        totalBoardCount: boards.length,
+                        visibleBoardCount: filteredBoards.length,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    _buildProcurementPanel(boards, inventory),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child:
-                          filteredBoards.isEmpty
-                              ? _buildNoSearchResults()
-                              : GridView.builder(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 4,
-                                ),
-                                gridDelegate:
-                                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent: 420,
-                                      childAspectRatio: 0.72,
-                                      crossAxisSpacing: 16,
-                                      mainAxisSpacing: 16,
-                                    ),
-                                itemCount: sortedBoards.length,
-                                itemBuilder: (context, i) {
-                                  final b = sortedBoards[i];
-                                  final cartQty = _boardCartQtyById[b.id] ?? 0;
-                                  final readiness =
-                                      readinessByBoardId[b.id] ??
-                                      const Readiness(
-                                        buildableQty: 0,
-                                        readyPct: 0.0,
-                                        shortfalls: [],
-                                      );
-
-                                  return ImprovedBoardCard(
-                                    board: b,
-                                    readiness: readiness,
-                                    canEdit: canEdit,
-                                    cartQty: cartQty,
-                                    onAddToCart:
-                                        () => _showBoardCartDialog(context, b),
-                                    onOpen: () => context.go('/boards/${b.id}'),
-                                    onDuplicate: () async {
-                                      if (!canEdit) return;
-                                      final newId = await _repo.duplicateBoard(
-                                        b.id,
-                                      );
-                                      if (!context.mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text('Cloned board: $newId'),
-                                          showCloseIcon: true,
-                                        ),
-                                      );
-                                    },
-                                    onMake:
-                                        canEdit
-                                            ? (qty) => _makeBoards(
-                                              context,
-                                              b,
-                                              qty,
-                                              _buildService,
-                                              inventory,
-                                            )
-                                            : null,
-                                  );
-                                },
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    SliverToBoxAdapter(
+                      child: _buildProcurementPanel(boards, inventory),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    if (filteredBoards.isEmpty)
+                      SliverFillRemaining(child: _buildNoSearchResults())
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        sliver: SliverGrid.builder(
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 420,
+                                childAspectRatio: 0.72,
+                                crossAxisSpacing: 16,
+                                mainAxisSpacing: 16,
                               ),
-                    ),
+                          itemCount: sortedBoards.length,
+                          itemBuilder: (context, i) {
+                            final b = sortedBoards[i];
+                            final cartQty = _boardCartQtyById[b.id] ?? 0;
+                            final readiness =
+                                readinessByBoardId[b.id] ??
+                                const Readiness(
+                                  buildableQty: 0,
+                                  readyPct: 0.0,
+                                  shortfalls: [],
+                                );
+
+                            return ImprovedBoardCard(
+                              board: b,
+                              readiness: readiness,
+                              canEdit: canEdit,
+                              cartQty: cartQty,
+                              onAddToCart:
+                                  () => _showBoardCartDialog(context, b),
+                              onOpen: () => context.go('/boards/${b.id}'),
+                              onDuplicate: () async {
+                                if (!canEdit) return;
+                                final newId = await _repo.duplicateBoard(b.id);
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Cloned board: $newId'),
+                                    showCloseIcon: true,
+                                  ),
+                                );
+                              },
+                              onMake:
+                                  canEdit
+                                      ? (qty) => _makeBoards(
+                                        context,
+                                        b,
+                                        qty,
+                                        _buildService,
+                                        inventory,
+                                      )
+                                      : null,
+                            );
+                          },
+                        ),
+                      ),
                   ],
                 );
               },
@@ -356,9 +360,7 @@ class _BoardsPageState extends State<BoardsPage> {
                       child: Row(
                         children: [
                           Icon(
-                            option == _sortOption
-                                ? Icons.check
-                                : Icons.sort,
+                            option == _sortOption ? Icons.check : Icons.sort,
                             size: 16,
                             color:
                                 option == _sortOption
@@ -538,11 +540,11 @@ class _BoardsPageState extends State<BoardsPage> {
           }
 
           final basePlan = planSnap.data!;
-          final plan = ProcurementPlannerService.mergeManualLines(
-            basePlan,
-            _manualLines,
+          final plan = _applyPlannerOverrides(
+            ProcurementPlannerService.mergeManualLines(basePlan, _manualLines),
           );
           final orderLines = plan.orderableLines;
+          final lowStockLines = plan.lowStockLines;
           final nonExportable =
               orderLines.where((l) => !l.hasOrderIdentifier).length;
           final totalLinesInCart =
@@ -628,6 +630,10 @@ class _BoardsPageState extends State<BoardsPage> {
                   if (plan.issues.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     _buildIssuesSection(plan),
+                  ],
+                  if (lowStockLines.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _buildLowStockSection(lowStockLines),
                   ],
                   const SizedBox(height: 12),
                   if (orderLines.isEmpty)
@@ -787,12 +793,90 @@ class _BoardsPageState extends State<BoardsPage> {
     );
   }
 
+  Widget _buildLowStockSection(List<ProcurementLine> lines) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: cs.tertiaryContainer.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cs.tertiary.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Low Stock',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('Part')),
+                DataColumn(label: Text('Type')),
+                DataColumn(label: Text('Stock')),
+                DataColumn(label: Text('Need')),
+                DataColumn(label: Text('Left')),
+                DataColumn(label: Text('Target')),
+                DataColumn(label: Text('Buy')),
+                DataColumn(label: Text('Boards')),
+              ],
+              rows:
+                  lines.map((line) {
+                    final id = line.partNumber.isEmpty ? '-' : line.partNumber;
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          SizedBox(
+                            width: 220,
+                            child: Text(id, overflow: TextOverflow.ellipsis),
+                          ),
+                        ),
+                        DataCell(
+                          Text(line.partType.isEmpty ? '-' : line.partType),
+                        ),
+                        DataCell(Text('${line.inStockQty}')),
+                        DataCell(Text('${line.requiredQty}')),
+                        DataCell(Text('${line.remainingAfterRequired}')),
+                        DataCell(Text('${line.lowStockThreshold ?? '-'}')),
+                        DataCell(
+                          IconButton(
+                            tooltip: 'Add this part to the order',
+                            onPressed: () => _showPurchaseQtyDialog(line),
+                            icon: const Icon(Icons.add_shopping_cart_outlined),
+                          ),
+                        ),
+                        DataCell(
+                          SizedBox(
+                            width: 220,
+                            child: Text(
+                              line.boardNames.join(', '),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOrderLinesTable(List<ProcurementLine> lines) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
         columns: const [
+          DataColumn(label: Text('')),
           DataColumn(label: Text('Part')),
+          DataColumn(label: Text('DigiKey PN')),
+          DataColumn(label: Text('DigiKey')),
           DataColumn(label: Text('Type')),
           DataColumn(label: Text('Pkg')),
           DataColumn(label: Text('Need')),
@@ -803,20 +887,36 @@ class _BoardsPageState extends State<BoardsPage> {
         ],
         rows:
             lines.map((line) {
-              final id = line.digikeyPartNumber ?? line.partNumber;
+              final id = line.partNumber.isEmpty ? '-' : line.partNumber;
+              final digikeyPn = line.digikeyPartNumber?.trim() ?? '';
               return DataRow(
                 cells: [
+                  DataCell(
+                    IconButton(
+                      tooltip: 'Delete line',
+                      onPressed: () => _deletePlannerLine(line),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ),
                   DataCell(
                     SizedBox(
                       width: 250,
                       child: Text(id, overflow: TextOverflow.ellipsis),
                     ),
                   ),
+                  DataCell(_buildDigiKeyPnCell(line, digikeyPn)),
+                  DataCell(_buildDigiKeyStatus(line)),
                   DataCell(Text(line.partType.isEmpty ? '-' : line.partType)),
                   DataCell(Text(line.package.isEmpty ? '-' : line.package)),
                   DataCell(Text('${line.requiredQty}')),
                   DataCell(Text('${line.inStockQty}')),
-                  DataCell(Text('${line.shortageQty}')),
+                  DataCell(
+                    TextButton.icon(
+                      onPressed: () => _showPurchaseQtyDialog(line),
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: Text('${line.purchaseQty}'),
+                    ),
+                  ),
                   DataCell(Text(_sourceLabel(line.source))),
                   DataCell(
                     SizedBox(
@@ -832,6 +932,181 @@ class _BoardsPageState extends State<BoardsPage> {
             }).toList(),
       ),
     );
+  }
+
+  Widget _buildDigiKeyPnCell(ProcurementLine line, String digikeyPn) {
+    if (digikeyPn.isEmpty) {
+      return TextButton.icon(
+        onPressed: () => _showDigiKeyPnDialog(line),
+        icon: const Icon(Icons.edit_outlined, size: 16),
+        label: const Text('Add PN'),
+      );
+    }
+
+    return TextButton.icon(
+      onPressed: () => _showDigiKeyPnDialog(line),
+      icon: const Icon(Icons.edit_outlined, size: 16),
+      label: SizedBox(
+        width: 160,
+        child: Text(digikeyPn, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+
+  Widget _buildDigiKeyStatus(ProcurementLine line) {
+    final cs = Theme.of(context).colorScheme;
+    if (line.hasDigiKeyPartNumber) {
+      return Tooltip(
+        message: 'DigiKey part number is set',
+        child: Icon(Icons.check_circle, color: cs.primary, size: 20),
+      );
+    }
+
+    return Tooltip(
+      message: 'Needs DigiKey lookup',
+      child: Icon(Icons.search_off_rounded, color: cs.error, size: 20),
+    );
+  }
+
+  ProcurementPlan _applyPlannerOverrides(ProcurementPlan plan) {
+    final adjustedLines = <ProcurementLine>[];
+    for (final line in plan.lines) {
+      final key = _plannerLineKey(line);
+      if (_deletedPlannerLineKeys.contains(key)) continue;
+
+      var adjusted = line;
+      if (_purchaseQtyOverrides.containsKey(key)) {
+        final qty = _purchaseQtyOverrides[key]!.clamp(0, 999999).toInt();
+        adjusted = adjusted.copyWith(purchaseQty: qty);
+      }
+      if (_digikeyPnOverrides.containsKey(key)) {
+        final value = _digikeyPnOverrides[key]!.trim();
+        adjusted = adjusted.copyWith(
+          digikeyPartNumber: value.isEmpty ? null : value,
+        );
+      }
+      adjustedLines.add(adjusted);
+    }
+    return ProcurementPlan(lines: adjustedLines, issues: plan.issues);
+  }
+
+  String _plannerLineKey(ProcurementLine line) {
+    final boards = line.boardNames.map((b) => b.toLowerCase()).toList()..sort();
+    return [
+      line.source.name,
+      line.inventoryDocId ?? '',
+      line.partNumber.toLowerCase(),
+      line.description.toLowerCase(),
+      boards.join('|'),
+    ].join('::');
+  }
+
+  Future<void> _showPurchaseQtyDialog(ProcurementLine line) async {
+    final controller = TextEditingController(text: '${line.purchaseQty}');
+    final result = await showDialog<int>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: Text('Purchase Quantity: ${line.partNumber}'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Qty to buy',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 0),
+                child: const Text('Set 0'),
+              ),
+              FilledButton(
+                onPressed:
+                    () => Navigator.pop(
+                      ctx,
+                      int.tryParse(controller.text.trim()),
+                    ),
+                child: const Text('Set'),
+              ),
+            ],
+          ),
+    );
+    controller.dispose();
+
+    if (result == null) return;
+    setState(() {
+      _purchaseQtyOverrides[_plannerLineKey(line)] =
+          result.clamp(0, 999999).toInt();
+    });
+  }
+
+  Future<void> _showDigiKeyPnDialog(ProcurementLine line) async {
+    final controller = TextEditingController(
+      text: line.digikeyPartNumber?.trim() ?? '',
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: Text('DigiKey PN: ${line.partNumber}'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'DigiKey part number',
+                border: OutlineInputBorder(),
+              ),
+              textCapitalization: TextCapitalization.characters,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ''),
+                child: const Text('Clear'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+    );
+    controller.dispose();
+
+    if (result == null) return;
+    setState(() {
+      _digikeyPnOverrides[_plannerLineKey(line)] = result.trim();
+    });
+  }
+
+  void _deletePlannerLine(ProcurementLine line) {
+    setState(() {
+      if (line.source == ProcurementLineSource.manual) {
+        final idx = _manualLines.indexWhere(
+          (manual) =>
+              manual.partNumber.trim().toLowerCase() ==
+                  line.partNumber.trim().toLowerCase() &&
+              manual.description.trim().toLowerCase() ==
+                  line.description.trim().toLowerCase() &&
+              manual.quantity == line.requiredQty,
+        );
+        if (idx >= 0) {
+          _manualLines.removeAt(idx);
+          return;
+        }
+      }
+      _deletedPlannerLineKeys.add(_plannerLineKey(line));
+    });
   }
 
   String _sourceLabel(ProcurementLineSource source) {
@@ -857,6 +1132,9 @@ class _BoardsPageState extends State<BoardsPage> {
     setState(() {
       _boardCartQtyById.clear();
       _manualLines.clear();
+      _purchaseQtyOverrides.clear();
+      _digikeyPnOverrides.clear();
+      _deletedPlannerLineKeys.clear();
     });
   }
 
@@ -1170,9 +1448,9 @@ class _BoardsPageState extends State<BoardsPage> {
 
   void _showInfo(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text), showCloseIcon: true),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(text), showCloseIcon: true));
   }
 
   Future<void> _makeBoards(

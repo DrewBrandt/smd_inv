@@ -128,6 +128,78 @@ void main() {
 
       expect(plan.toQuickOrderText(), 'MPN-2,3');
     });
+
+    test('editable purchase qty drives order totals and exports', () {
+      const plan = ProcurementPlan(
+        lines: [
+          ProcurementLine(
+            source: ProcurementLineSource.inventory,
+            inventoryDocId: 'a',
+            partNumber: 'MPN-3',
+            digikeyPartNumber: '123-MPN-3-ND',
+            partType: 'ic',
+            package: '',
+            description: 'MCU',
+            requiredQty: 3,
+            inStockQty: 0,
+            shortageQty: 3,
+            purchaseQty: 7,
+            unitPrice: 2.0,
+            vendorLink: null,
+            boardNames: ['Main'],
+          ),
+        ],
+        issues: [],
+      );
+
+      expect(plan.totalShortageQty, 7);
+      expect(plan.knownOrderCost, 14);
+      expect(plan.toQuickOrderText(), '123-MPN-3-ND,7');
+    });
+
+    test('lowStockLines excludes active order lines', () {
+      const plan = ProcurementPlan(
+        lines: [
+          ProcurementLine(
+            source: ProcurementLineSource.inventory,
+            inventoryDocId: 'passive',
+            partNumber: 'R-1K',
+            digikeyPartNumber: null,
+            partType: 'resistor',
+            package: '0603',
+            description: '1k resistor',
+            requiredQty: 2,
+            inStockQty: 11,
+            shortageQty: 0,
+            lowStockThreshold: 10,
+            unitPrice: null,
+            vendorLink: null,
+            boardNames: ['Main'],
+          ),
+          ProcurementLine(
+            source: ProcurementLineSource.inventory,
+            inventoryDocId: 'ordered',
+            partNumber: 'U1',
+            digikeyPartNumber: null,
+            partType: 'ic',
+            package: 'QFN',
+            description: 'chip',
+            requiredQty: 2,
+            inStockQty: 3,
+            shortageQty: 0,
+            purchaseQty: 4,
+            lowStockThreshold: 2,
+            unitPrice: null,
+            vendorLink: null,
+            boardNames: ['Main'],
+          ),
+        ],
+        issues: [],
+      );
+
+      expect(plan.lowStockLines, hasLength(1));
+      expect(plan.lowStockLines.single.inventoryDocId, 'passive');
+    });
   });
 
   group('ProcurementIssue/ManualProcurementLine', () {
