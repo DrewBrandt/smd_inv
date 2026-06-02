@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../constants/firestore_constants.dart';
 import '../models/procurement.dart';
+import 'digikey_part_resolver.dart';
 import 'inventory_matcher.dart';
 import 'part_normalizer.dart';
 
@@ -74,6 +75,7 @@ class ProcurementPlannerService {
       final item = fallbackByKey.putIfAbsent(
         key,
         () => _FallbackLine(
+          attrs: Map<String, dynamic>.from(attrs),
           partNumber: rawPartNumber,
           partType: partType,
           value: value,
@@ -197,8 +199,8 @@ class ProcurementPlannerService {
           source: ProcurementLineSource.inventory,
           inventoryDocId: doc.id,
           partNumber: partNumber,
-          digikeyPartNumber: extractDigiKeyPartNumber(
-            vendorLink,
+          digikeyPartNumber: DigiKeyPartResolver.resolveFromInventoryData(
+            data,
             fallbackPartNumber: partNumber,
           ),
           partType: partType,
@@ -225,8 +227,8 @@ class ProcurementPlannerService {
           source: ProcurementLineSource.bomFallback,
           inventoryDocId: null,
           partNumber: item.partNumber,
-          digikeyPartNumber: extractDigiKeyPartNumber(
-            null,
+          digikeyPartNumber: DigiKeyPartResolver.resolveFromBomAttributes(
+            item.attrs,
             fallbackPartNumber: item.partNumber,
           ),
           partType: item.partType,
@@ -289,7 +291,7 @@ class ProcurementPlannerService {
           source: ProcurementLineSource.manual,
           inventoryDocId: null,
           partNumber: partNumber,
-          digikeyPartNumber: extractDigiKeyPartNumber(
+          digikeyPartNumber: DigiKeyPartResolver.extractDigiKeyPartNumber(
             item.vendorLink,
             fallbackPartNumber: item.digikeyPartNumber ?? partNumber,
           ),
@@ -321,40 +323,10 @@ class ProcurementPlannerService {
   static String? extractDigiKeyPartNumber(
     String? vendorLink, {
     String? fallbackPartNumber,
-  }) {
-    final fallback = _normalizedDigiKeyPn(fallbackPartNumber);
-    if (vendorLink == null || vendorLink.trim().isEmpty) {
-      return fallback;
-    }
-
-    final uri = Uri.tryParse(vendorLink.trim());
-    if (uri == null) return fallback;
-
-    final host = uri.host.toLowerCase();
-    if (!host.contains('digikey')) return fallback;
-
-    for (final segment in uri.pathSegments.reversed) {
-      final value = _normalizedDigiKeyPn(segment);
-      if (value != null) return value;
-    }
-
-    for (final key in ['item', 'part', 'partnumber', 'pn', 'keywords']) {
-      final value = _normalizedDigiKeyPn(uri.queryParameters[key]);
-      if (value != null) return value;
-    }
-
-    return fallback;
-  }
-
-  static String? _normalizedDigiKeyPn(String? raw) {
-    if (raw == null) return null;
-    final value = raw.trim();
-    if (value.isEmpty) return null;
-    if (RegExp(r'^[A-Za-z0-9./-]+-ND$', caseSensitive: false).hasMatch(value)) {
-      return value.toUpperCase();
-    }
-    return null;
-  }
+  }) => DigiKeyPartResolver.extractDigiKeyPartNumber(
+    vendorLink,
+    fallbackPartNumber: fallbackPartNumber,
+  );
 
   static String _describeFallback(
     String rawPartNumber,
@@ -400,6 +372,7 @@ class _IssueAccum {
 }
 
 class _FallbackLine {
+  final Map<String, dynamic> attrs;
   final String partNumber;
   final String partType;
   final String value;
@@ -409,6 +382,7 @@ class _FallbackLine {
   final Set<String> boards = <String>{};
 
   _FallbackLine({
+    required this.attrs,
     required this.partNumber,
     required this.partType,
     required this.value,

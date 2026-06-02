@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smd_inv/constants/firestore_constants.dart';
 import 'package:smd_inv/services/csv_parser_service.dart';
 import 'package:smd_inv/services/inventory_csv_mapper.dart';
 
@@ -54,6 +55,7 @@ Resistor 10k 0603,25,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/726688
 
       expect(items, hasLength(1));
       expect(items.first['part_#'], 'CRCW060327R0FKEA');
+      expect(items.first[FirestoreFields.digiKeyPartNumber], '541-27.0HCT-ND');
       expect(items.first['type'], 'resistor');
       expect(items.first['package'], '0603');
       expect(items.first['description'], 'RES SMD 27 OHM 1% 1/8W 0603');
@@ -80,6 +82,7 @@ Resistor 10k 0603,25,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/726688
 
         expect(items, hasLength(1));
         expect(items.first['part_#'], '490-9647-1-ND');
+        expect(items.first[FirestoreFields.digiKeyPartNumber], '490-9647-1-ND');
         expect(items.first['description'], 'BUZZER PIEZO 9X9MM SMD');
         expect(items.first['price_per_unit'], 0.717);
       },
@@ -222,7 +225,8 @@ Resistor 10k 0603,25,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/726688
     });
 
     test('appends DigiKey PN note to existing notes', () {
-      const csv = 'Item,Quantity,Part Number,Notes\n'
+      const csv =
+          'Item,Quantity,Part Number,Notes\n'
           'Widget,1,DK-123-ND,Already has notes\n';
 
       final parsed = CsvParserService.parse(
@@ -278,7 +282,7 @@ Resistor 10k 0603,25,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/726688
 
     test('applies explicit defaultLocation', () {
       final parsed = CsvParserService.parse(
-        '${_digikeyHeader}"1","10","311-100HRCT-ND","RC0603FR-07100RL","RES 100 OHM 1% 1/10W 0603","","20","0","0.02400","0.48"\n',
+        '$_digikeyHeader"1","10","311-100HRCT-ND","RC0603FR-07100RL","RES 100 OHM 1% 1/10W 0603","","20","0","0.02400","0.48"\n',
         expectedColumns: InventoryCsvMapper.expectedColumns,
       );
       final items = InventoryCsvMapper.toInventoryItems(
@@ -289,7 +293,8 @@ Resistor 10k 0603,25,https://www.digikey.com/detail/yageo/RC0603FR-0710KL/726688
     });
 
     test('parses full DigiKey cart with multiple component types', () {
-      final csv = '$_digikeyHeader'
+      final csv =
+          '$_digikeyHeader'
           '"1","50","1276-1184-1-ND","CL10B105KA8NNNC","CAP CER 1UF 25V X7R 0603","","50","0","0.02440","1.22"\n'
           '"2","25","541-27.0HCT-ND","CRCW060327R0FKEA","RES SMD 27 OHM 1% 1/8W 0603","","25","0","0.02400","0.60"\n'
           '"3","5","283-HCM1A1305V3-1R5-RCT-ND","HCM1A1305V3-1R5-R","FIXED IND 1.5UH 19A 3 MOHM SMD","","5","0","0.62000","3.10"\n'

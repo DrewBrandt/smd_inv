@@ -9,6 +9,7 @@ const Map<String, String> kAttrLabel = {
   'size': 'Size',
   'value': 'Value',
   'part_#': 'Part #',
+  'digikey_part_#': 'DigiKey PN',
   'category': 'Category',
   'description': 'Description',
   'location': 'Location',
@@ -59,6 +60,7 @@ class UnifiedInventoryColumns {
   /// Columns for all items (kitchen sink view)
   static List<ColumnSpec> get all => [
     ColumnSpec(field: 'part_#', label: 'Part #'),
+    ColumnSpec(field: 'digikey_part_#', label: 'DigiKey PN'),
     ColumnSpec(field: 'type', label: 'Type', capitalize: true),
     ColumnSpec(field: 'value', label: 'Value'),
     ColumnSpec(field: 'package', label: 'Package'),

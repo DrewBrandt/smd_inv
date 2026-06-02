@@ -16,6 +16,7 @@ class ManualAddDialog extends StatefulWidget {
 class _ManualAddDialogState extends State<ManualAddDialog> {
   final _formKey = GlobalKey<FormState>();
   final _partNumberController = TextEditingController();
+  final _digiKeyPartNumberController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _valueController = TextEditingController();
   final _packageController = TextEditingController();
@@ -43,6 +44,7 @@ class _ManualAddDialogState extends State<ManualAddDialog> {
   @override
   void dispose() {
     _partNumberController.dispose();
+    _digiKeyPartNumberController.dispose();
     _descriptionController.dispose();
     _valueController.dispose();
     _packageController.dispose();
@@ -65,6 +67,7 @@ class _ManualAddDialogState extends State<ManualAddDialog> {
     try {
       final data = {
         'part_#': _partNumberController.text.trim(),
+        'digikey_part_#': _digiKeyPartNumberController.text.trim(),
         'type': _selectedType,
         'value': _isPassive ? _valueController.text.trim() : null,
         'package': _packageController.text.trim(),
@@ -150,6 +153,17 @@ class _ManualAddDialogState extends State<ManualAddDialog> {
                   ),
                   validator:
                       (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _digiKeyPartNumberController,
+                  decoration: const InputDecoration(
+                    labelText: 'DigiKey PN',
+                    border: OutlineInputBorder(),
+                    hintText: 'e.g., 497-15115-1-ND',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
                 ),
                 const SizedBox(height: 12),
 

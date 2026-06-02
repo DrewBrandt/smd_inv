@@ -18,6 +18,7 @@ abstract class FirestoreCollections {
 abstract class FirestoreFields {
   // Inventory fields
   static const String partNumber = 'part_#';
+  static const String digiKeyPartNumber = 'digikey_part_#';
   static const String type = 'type';
   static const String value = 'value';
   static const String package = 'package';

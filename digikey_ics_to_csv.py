@@ -12,6 +12,7 @@ from typing import Any
 
 CSV_HEADERS = [
     "part_#",
+    "digikey_part_#",
     "type",
     "value",
     "package",
@@ -391,6 +392,9 @@ def build_row(product: dict[str, Any]) -> dict[str, str]:
 
     return {
         "part_#": manufacturer_part_number,
+        "digikey_part_#": str(
+            product.get("DigiKeyProductNumber") or product.get("ProductNumber") or ""
+        ).strip(),
         "type": "ic",
         "value": "",
         "package": pick_package(product),

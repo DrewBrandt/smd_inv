@@ -212,9 +212,7 @@ class CsvParseResult {
     String defaultValue = '',
   }) {
     var index = columnMap[columnName];
-    if (index == null) {
-      index = CsvParserService._findHeaderIndex(headers, columnName);
-    }
+    index ??= CsvParserService._findHeaderIndex(headers, columnName);
     if (index == null || index >= row.length) return defaultValue;
     return row[index]?.toString().trim() ?? defaultValue;
   }

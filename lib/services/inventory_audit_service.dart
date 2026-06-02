@@ -20,6 +20,7 @@ class InventoryAuditService {
       [
         FirestoreFields.docId,
         FirestoreFields.partNumber,
+        FirestoreFields.digiKeyPartNumber,
         FirestoreFields.type,
         FirestoreFields.value,
         FirestoreFields.package,
@@ -38,6 +39,7 @@ class InventoryAuditService {
       rows.add([
         doc.id,
         d[FirestoreFields.partNumber] ?? '',
+        d[FirestoreFields.digiKeyPartNumber] ?? '',
         d[FirestoreFields.type] ?? '',
         d[FirestoreFields.value] ?? '',
         d[FirestoreFields.package] ?? '',
@@ -63,6 +65,10 @@ class InventoryAuditService {
         'ID',
         'part_#',
         'Part #',
+        'digikey_part_#',
+        'DigiKey PN',
+        'DigiKey Part Number',
+        'Digi-Key Part Number',
         'type',
         'Type',
         'value',
@@ -129,6 +135,12 @@ class InventoryAuditService {
           docId: docId,
           data: {
             FirestoreFields.partNumber: partNumber,
+            FirestoreFields.digiKeyPartNumber: _cell(parseResult, row, [
+              FirestoreFields.digiKeyPartNumber,
+              'DigiKey PN',
+              'DigiKey Part Number',
+              'Digi-Key Part Number',
+            ]),
             FirestoreFields.type: _cell(parseResult, row, [
               FirestoreFields.type,
               'Type',

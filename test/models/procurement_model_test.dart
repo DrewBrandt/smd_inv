@@ -231,5 +231,26 @@ void main() {
 
       expect(line.boardLabel, 'Manual');
     });
+
+    test('ManualProcurementLine round trips persisted cart data', () {
+      const line = ManualProcurementLine(
+        partNumber: 'MPN-10',
+        digikeyPartNumber: '123-MPN-10-ND',
+        description: 'Sensor',
+        quantity: 4,
+        vendorLink: 'https://www.digikey.com',
+        partType: 'ic',
+        package: 'QFN',
+      );
+
+      final restored = ManualProcurementLine.fromJson(line.toJson());
+
+      expect(restored.partNumber, line.partNumber);
+      expect(restored.digikeyPartNumber, line.digikeyPartNumber);
+      expect(restored.quantity, line.quantity);
+      expect(restored.vendorLink, line.vendorLink);
+      expect(restored.partType, line.partType);
+      expect(restored.package, line.package);
+    });
   });
 }

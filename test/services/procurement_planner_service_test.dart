@@ -127,6 +127,39 @@ void main() {
       expect(line.shortageQty, 3);
     });
 
+    test('buildPlan uses stored DigiKey part number field', () async {
+      final ref = await db.collection(FirestoreCollections.inventory).add({
+        FirestoreFields.partNumber: 'STM32C011F6U6TR',
+        FirestoreFields.digiKeyPartNumber: '497-STM32C011F6U6TRCT-ND',
+        FirestoreFields.type: 'ic',
+        FirestoreFields.value: 'STM32',
+        FirestoreFields.package: 'UFQFPN',
+        FirestoreFields.qty: 0,
+      });
+
+      final board = BoardDoc(
+        id: 'b-dk-field',
+        name: 'DigiKey Field Board',
+        bom: [
+          BomLine(
+            designators: 'U1',
+            qty: 1,
+            requiredAttributes: {
+              FirestoreFields.selectedComponentRef: ref.id,
+              'part_type': 'ic',
+            },
+          ),
+        ],
+      );
+
+      final plan = await service.buildPlan(
+        boardOrders: [BoardOrderRequest(board: board, quantity: 2)],
+      );
+
+      expect(plan.lines.single.digikeyPartNumber, '497-STM32C011F6U6TRCT-ND');
+      expect(plan.toQuickOrderText(), '497-STM32C011F6U6TRCT-ND,2');
+    });
+
     test(
       'buildPlan ignores ambiguous matches when combined stock is enough',
       () async {

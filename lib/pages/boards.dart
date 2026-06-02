@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -10,11 +14,14 @@ import 'package:smd_inv/models/procurement.dart';
 import 'package:smd_inv/models/readiness.dart';
 import 'package:smd_inv/services/auth_service.dart';
 import 'package:smd_inv/services/board_build_service.dart';
+import 'package:smd_inv/services/cart_paste_parser.dart';
+import 'package:smd_inv/services/digikey_part_resolver.dart';
 import 'package:smd_inv/services/inventory_matcher.dart';
 import 'package:smd_inv/services/procurement_planner_service.dart';
 import 'package:smd_inv/services/readiness_calculator.dart';
 import 'package:smd_inv/widgets/board_card.dart';
 import 'package:smd_inv/widgets/searchable_part_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/firestore_constants.dart';
 import '../data/boards_repo.dart';
@@ -59,10 +66,20 @@ class _BoardsPageState extends State<BoardsPage> {
   final Map<String, int> _purchaseQtyOverrides = <String, int>{};
   final Map<String, String> _digikeyPnOverrides = <String, String>{};
   final Set<String> _deletedPlannerLineKeys = <String>{};
+  final Set<String> _dismissedLowStockLineKeys = <String>{};
+  final Set<String> _digikeyPnBackfillKeys = <String>{};
   String _boardSearchQuery = '';
   BoardSortOption _sortOption = BoardSortOption.nameAsc;
 
   static const String _sortPrefsKey = 'boards_sort_option';
+  static const String _cartPrefsKey = 'boards_purchase_cart';
+  static const String _manualLinesPrefsKey = 'boards_purchase_manual_lines';
+  static const String _purchaseQtyPrefsKey = 'boards_purchase_qty_overrides';
+  static const String _digikeyPnPrefsKey = 'boards_digikey_pn_overrides';
+  static const String _deletedLinesPrefsKey =
+      'boards_deleted_planner_line_keys';
+  static const String _dismissedLowStockPrefsKey =
+      'boards_dismissed_low_stock_line_keys';
 
   @override
   void initState() {
@@ -73,6 +90,7 @@ class _BoardsPageState extends State<BoardsPage> {
       setState(() => _boardSearchQuery = next);
     });
     _loadSavedSort();
+    _loadSavedCart();
   }
 
   Future<void> _loadSavedSort() async {
@@ -85,6 +103,132 @@ class _BoardsPageState extends State<BoardsPage> {
   Future<void> _saveSort(BoardSortOption option) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_sortPrefsKey, option.name);
+  }
+
+  Future<void> _loadSavedCart() async {
+    final prefs = await SharedPreferences.getInstance();
+    final boardCart = _decodeStringIntMap(prefs.getString(_cartPrefsKey));
+    final purchaseOverrides = _decodeStringIntMap(
+      prefs.getString(_purchaseQtyPrefsKey),
+    );
+    final digiKeyOverrides = _decodeStringStringMap(
+      prefs.getString(_digikeyPnPrefsKey),
+    );
+    final deletedLineKeys = _decodeStringList(
+      prefs.getString(_deletedLinesPrefsKey),
+    );
+    final dismissedLowStockKeys = _decodeStringList(
+      prefs.getString(_dismissedLowStockPrefsKey),
+    );
+    final manualLines = _decodeManualLines(
+      prefs.getString(_manualLinesPrefsKey),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _boardCartQtyById
+        ..clear()
+        ..addAll(boardCart);
+      _manualLines
+        ..clear()
+        ..addAll(manualLines);
+      _purchaseQtyOverrides
+        ..clear()
+        ..addAll(purchaseOverrides);
+      _digikeyPnOverrides
+        ..clear()
+        ..addAll(digiKeyOverrides);
+      _deletedPlannerLineKeys
+        ..clear()
+        ..addAll(deletedLineKeys);
+      _dismissedLowStockLineKeys
+        ..clear()
+        ..addAll(dismissedLowStockKeys);
+    });
+  }
+
+  Future<void> _saveCartState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await Future.wait([
+      prefs.setString(_cartPrefsKey, jsonEncode(_boardCartQtyById)),
+      prefs.setString(
+        _manualLinesPrefsKey,
+        jsonEncode(_manualLines.map((line) => line.toJson()).toList()),
+      ),
+      prefs.setString(_purchaseQtyPrefsKey, jsonEncode(_purchaseQtyOverrides)),
+      prefs.setString(_digikeyPnPrefsKey, jsonEncode(_digikeyPnOverrides)),
+      prefs.setString(
+        _deletedLinesPrefsKey,
+        jsonEncode(_deletedPlannerLineKeys.toList()),
+      ),
+      prefs.setString(
+        _dismissedLowStockPrefsKey,
+        jsonEncode(_dismissedLowStockLineKeys.toList()),
+      ),
+    ]);
+  }
+
+  static Map<String, int> _decodeStringIntMap(String? raw) {
+    if (raw == null || raw.isEmpty) return <String, int>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, int>{};
+      final result = <String, int>{};
+      for (final entry in decoded.entries) {
+        final rawValue = entry.value;
+        final value =
+            rawValue is num ? rawValue.toInt() : int.tryParse('$rawValue');
+        if (value != null && value > 0) {
+          result[entry.key.toString()] = value;
+        }
+      }
+      return result;
+    } catch (_) {
+      return <String, int>{};
+    }
+  }
+
+  static Map<String, String> _decodeStringStringMap(String? raw) {
+    if (raw == null || raw.isEmpty) return <String, String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, String>{};
+      return {
+        for (final entry in decoded.entries)
+          entry.key.toString(): entry.value?.toString() ?? '',
+      };
+    } catch (_) {
+      return <String, String>{};
+    }
+  }
+
+  static List<String> _decodeStringList(String? raw) {
+    if (raw == null || raw.isEmpty) return <String>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return <String>[];
+      return decoded.map((value) => value.toString()).toList();
+    } catch (_) {
+      return <String>[];
+    }
+  }
+
+  static List<ManualProcurementLine> _decodeManualLines(String? raw) {
+    if (raw == null || raw.isEmpty) return <ManualProcurementLine>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return <ManualProcurementLine>[];
+      return decoded
+          .whereType<Map>()
+          .map(
+            (item) =>
+                ManualProcurementLine.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .where((line) => line.quantity > 0)
+          .toList();
+    } catch (_) {
+      return <ManualProcurementLine>[];
+    }
   }
 
   @override
@@ -159,7 +303,11 @@ class _BoardsPageState extends State<BoardsPage> {
                     ),
                     const SliverToBoxAdapter(child: SizedBox(height: 12)),
                     SliverToBoxAdapter(
-                      child: _buildProcurementPanel(boards, inventory),
+                      child: _buildProcurementPanel(
+                        boards,
+                        inventory,
+                        canEdit: canEdit,
+                      ),
                     ),
                     const SliverToBoxAdapter(child: SizedBox(height: 12)),
                     if (filteredBoards.isEmpty)
@@ -495,8 +643,9 @@ class _BoardsPageState extends State<BoardsPage> {
 
   Widget _buildProcurementPanel(
     List<BoardDoc> boards,
-    QuerySnapshot<Map<String, dynamic>> inventory,
-  ) {
+    QuerySnapshot<Map<String, dynamic>> inventory, {
+    required bool canEdit,
+  }) {
     final cs = Theme.of(context).colorScheme;
     final maxPanelHeight = (MediaQuery.sizeOf(context).height * 0.58).clamp(
       260.0,
@@ -543,8 +692,19 @@ class _BoardsPageState extends State<BoardsPage> {
           final plan = _applyPlannerOverrides(
             ProcurementPlannerService.mergeManualLines(basePlan, _manualLines),
           );
+          _queueDigiKeyPartNumberBackfill(plan, inventory, canEdit: canEdit);
           final orderLines = plan.orderableLines;
-          final lowStockLines = plan.lowStockLines;
+          final allLowStockLines = plan.lowStockLines;
+          final lowStockLines = allLowStockLines
+              .where(
+                (line) =>
+                    !_dismissedLowStockLineKeys.contains(
+                      _lowStockLineKey(line),
+                    ),
+              )
+              .toList(growable: false);
+          final hiddenLowStockCount =
+              allLowStockLines.length - lowStockLines.length;
           final nonExportable =
               orderLines.where((l) => !l.hasOrderIdentifier).length;
           final totalLinesInCart =
@@ -583,6 +743,12 @@ class _BoardsPageState extends State<BoardsPage> {
                         onPressed: () => _showAddInventoryLineDialog(inventory),
                         icon: const Icon(Icons.playlist_add),
                         label: const Text('Add Inventory Item'),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton.icon(
+                        onPressed: _showPasteCartDialog,
+                        icon: const Icon(Icons.content_paste_go_outlined),
+                        label: const Text('Paste Cart'),
                       ),
                       const SizedBox(width: 6),
                       OutlinedButton.icon(
@@ -631,9 +797,12 @@ class _BoardsPageState extends State<BoardsPage> {
                     const SizedBox(height: 12),
                     _buildIssuesSection(plan),
                   ],
-                  if (lowStockLines.isNotEmpty) ...[
+                  if (lowStockLines.isNotEmpty || hiddenLowStockCount > 0) ...[
                     const SizedBox(height: 12),
-                    _buildLowStockSection(lowStockLines),
+                    _buildLowStockSection(
+                      lowStockLines,
+                      hiddenCount: hiddenLowStockCount,
+                    ),
                   ],
                   const SizedBox(height: 12),
                   if (orderLines.isEmpty)
@@ -701,6 +870,12 @@ class _BoardsPageState extends State<BoardsPage> {
               onPressed: _showAddManualLineDialog,
               icon: const Icon(Icons.add),
               label: const Text('Add Custom Line'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _showPasteCartDialog,
+              icon: const Icon(Icons.content_paste_go_outlined),
+              label: const Text('Paste Cart'),
             ),
           ],
         ),
@@ -793,7 +968,10 @@ class _BoardsPageState extends State<BoardsPage> {
     );
   }
 
-  Widget _buildLowStockSection(List<ProcurementLine> lines) {
+  Widget _buildLowStockSection(
+    List<ProcurementLine> lines, {
+    required int hiddenCount,
+  }) {
     final cs = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
@@ -806,59 +984,92 @@ class _BoardsPageState extends State<BoardsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Low Stock',
-            style: TextStyle(fontWeight: FontWeight.w700),
+          Row(
+            children: [
+              const Text(
+                'Low Stock',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (hiddenCount > 0) ...[
+                const SizedBox(width: 8),
+                Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text('$hiddenCount dismissed'),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _restoreDismissedLowStock,
+                  icon: const Icon(Icons.undo_outlined, size: 16),
+                  label: const Text('Restore dismissed'),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('Part')),
-                DataColumn(label: Text('Type')),
-                DataColumn(label: Text('Value')),
-                DataColumn(label: Text('Stock')),
-                DataColumn(label: Text('Need')),
-                DataColumn(label: Text('Left')),
-                DataColumn(label: Text('Target')),
-                DataColumn(label: Text('Buy')),
-                DataColumn(label: Text('Boards')),
-              ],
-              rows:
-                  lines.map((line) {
-                    return DataRow(
-                      cells: [
-                        DataCell(_buildPartCell(line, width: 220)),
-                        DataCell(
-                          Text(line.partType.isEmpty ? '-' : line.partType),
-                        ),
-                        DataCell(Text(line.value.isEmpty ? '-' : line.value)),
-                        DataCell(Text('${line.inStockQty}')),
-                        DataCell(Text('${line.requiredQty}')),
-                        DataCell(Text('${line.remainingAfterRequired}')),
-                        DataCell(Text('${line.lowStockThreshold ?? '-'}')),
-                        DataCell(
-                          IconButton(
-                            tooltip: 'Add this part to the order',
-                            onPressed: () => _showPurchaseQtyDialog(line),
-                            icon: const Icon(Icons.add_shopping_cart_outlined),
+          if (lines.isEmpty)
+            Text(
+              'All low-stock suggestions are dismissed.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('Part')),
+                  DataColumn(label: Text('Type')),
+                  DataColumn(label: Text('Value')),
+                  DataColumn(label: Text('Stock')),
+                  DataColumn(label: Text('Need')),
+                  DataColumn(label: Text('Left')),
+                  DataColumn(label: Text('Target')),
+                  DataColumn(label: Text('Buy')),
+                  DataColumn(label: Text('Dismiss')),
+                  DataColumn(label: Text('Boards')),
+                ],
+                rows:
+                    lines.map((line) {
+                      return DataRow(
+                        cells: [
+                          DataCell(_buildPartCell(line, width: 220)),
+                          DataCell(
+                            Text(line.partType.isEmpty ? '-' : line.partType),
                           ),
-                        ),
-                        DataCell(
-                          SizedBox(
-                            width: 220,
-                            child: Text(
-                              line.boardNames.join(', '),
-                              overflow: TextOverflow.ellipsis,
+                          DataCell(Text(line.value.isEmpty ? '-' : line.value)),
+                          DataCell(Text('${line.inStockQty}')),
+                          DataCell(Text('${line.requiredQty}')),
+                          DataCell(Text('${line.remainingAfterRequired}')),
+                          DataCell(Text('${line.lowStockThreshold ?? '-'}')),
+                          DataCell(
+                            IconButton(
+                              tooltip: 'Add this part to the order',
+                              onPressed: () => _showPurchaseQtyDialog(line),
+                              icon: const Icon(
+                                Icons.add_shopping_cart_outlined,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    );
-                  }).toList(),
+                          DataCell(
+                            IconButton(
+                              tooltip: 'Dismiss low-stock suggestion',
+                              onPressed: () => _dismissLowStockLine(line),
+                              icon: const Icon(Icons.visibility_off_outlined),
+                            ),
+                          ),
+                          DataCell(
+                            SizedBox(
+                              width: 220,
+                              child: Text(
+                                line.boardNames.join(', '),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -988,9 +1199,82 @@ class _BoardsPageState extends State<BoardsPage> {
     }
 
     return Tooltip(
-      message: 'Needs DigiKey lookup',
-      child: Icon(Icons.search_off_rounded, color: cs.error, size: 20),
+      message: 'Open DigiKey search',
+      child: IconButton(
+        onPressed: () => _openDigiKeySearch(line),
+        icon: Icon(Icons.manage_search_rounded, color: cs.error, size: 20),
+      ),
     );
+  }
+
+  void _queueDigiKeyPartNumberBackfill(
+    ProcurementPlan plan,
+    QuerySnapshot<Map<String, dynamic>> inventory, {
+    required bool canEdit,
+  }) {
+    if (!canEdit) return;
+
+    final docsById = {for (final doc in inventory.docs) doc.id: doc};
+    final updates = <String, String>{};
+    for (final line in plan.lines) {
+      final docId = line.inventoryDocId;
+      final digiKeyPn = line.digikeyPartNumber?.trim() ?? '';
+      if (docId == null || digiKeyPn.isEmpty) continue;
+
+      final data = docsById[docId]?.data();
+      final current =
+          data?[FirestoreFields.digiKeyPartNumber]?.toString().trim() ?? '';
+      if (current.isNotEmpty) continue;
+
+      final queueKey = '$docId::$digiKeyPn';
+      if (!_digikeyPnBackfillKeys.add(queueKey)) continue;
+      updates[docId] = digiKeyPn;
+    }
+
+    if (updates.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_saveDigiKeyPartNumberBackfill(updates));
+    });
+  }
+
+  Future<void> _saveDigiKeyPartNumberBackfill(
+    Map<String, String> updates,
+  ) async {
+    if (updates.isEmpty) return;
+
+    final batch = FirebaseFirestore.instance.batch();
+    final collection = FirebaseFirestore.instance.collection(
+      FirestoreCollections.inventory,
+    );
+    for (final entry in updates.entries) {
+      batch.update(collection.doc(entry.key), {
+        FirestoreFields.digiKeyPartNumber: entry.value,
+        FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
+      });
+    }
+
+    try {
+      await batch.commit();
+    } catch (_) {
+      // Firestore rules may reject this for read-only users; the planner still works.
+    }
+  }
+
+  Future<void> _openDigiKeySearch(ProcurementLine line) async {
+    final query = [
+      line.partNumber,
+      line.description,
+      line.value,
+      line.package,
+    ].where((value) => value.trim().isNotEmpty).join(' ');
+    if (query.isEmpty) return;
+
+    final uri = Uri.parse(DigiKeyPartResolver.searchUrl(query));
+    if (kIsWeb) {
+      await launchUrl(uri, webOnlyWindowName: '_blank');
+    } else {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   ProcurementPlan _applyPlannerOverrides(ProcurementPlan plan) {
@@ -1024,6 +1308,34 @@ class _BoardsPageState extends State<BoardsPage> {
       line.description.toLowerCase(),
       boards.join('|'),
     ].join('::');
+  }
+
+  String _lowStockLineKey(ProcurementLine line) {
+    final inventoryId = line.inventoryDocId?.trim() ?? '';
+    final partId =
+        inventoryId.isNotEmpty
+            ? 'inventory::$inventoryId'
+            : 'line::${_plannerLineKey(line)}';
+    return [
+      partId,
+      'required:${line.requiredQty}',
+      'remaining:${line.remainingAfterRequired}',
+      'target:${line.lowStockThreshold ?? ''}',
+    ].join('::');
+  }
+
+  void _dismissLowStockLine(ProcurementLine line) {
+    setState(() {
+      _dismissedLowStockLineKeys.add(_lowStockLineKey(line));
+    });
+    unawaited(_saveCartState());
+  }
+
+  void _restoreDismissedLowStock() {
+    setState(() {
+      _dismissedLowStockLineKeys.clear();
+    });
+    unawaited(_saveCartState());
   }
 
   Future<void> _showPurchaseQtyDialog(ProcurementLine line) async {
@@ -1070,6 +1382,7 @@ class _BoardsPageState extends State<BoardsPage> {
       _purchaseQtyOverrides[_plannerLineKey(line)] =
           result.clamp(0, 999999).toInt();
     });
+    unawaited(_saveCartState());
   }
 
   Future<void> _showDigiKeyPnDialog(ProcurementLine line) async {
@@ -1112,6 +1425,37 @@ class _BoardsPageState extends State<BoardsPage> {
     setState(() {
       _digikeyPnOverrides[_plannerLineKey(line)] = result.trim();
     });
+    unawaited(_saveCartState());
+    unawaited(_saveDigiKeyPartNumberOverride(line, result.trim()));
+  }
+
+  Future<void> _saveDigiKeyPartNumberOverride(
+    ProcurementLine line,
+    String value,
+  ) async {
+    final docId = line.inventoryDocId;
+    if (line.source != ProcurementLineSource.inventory || docId == null) {
+      return;
+    }
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection(FirestoreCollections.inventory)
+          .doc(docId);
+      if (value.isEmpty) {
+        await docRef.update({
+          FirestoreFields.digiKeyPartNumber: FieldValue.delete(),
+          FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
+        });
+      } else {
+        await docRef.update({
+          FirestoreFields.digiKeyPartNumber: value,
+          FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (_) {
+      // Keep the local override even if the user cannot write inventory.
+    }
   }
 
   void _deletePlannerLine(ProcurementLine line) {
@@ -1132,6 +1476,7 @@ class _BoardsPageState extends State<BoardsPage> {
       }
       _deletedPlannerLineKeys.add(_plannerLineKey(line));
     });
+    unawaited(_saveCartState());
   }
 
   String _sourceLabel(ProcurementLineSource source) {
@@ -1160,13 +1505,16 @@ class _BoardsPageState extends State<BoardsPage> {
       _purchaseQtyOverrides.clear();
       _digikeyPnOverrides.clear();
       _deletedPlannerLineKeys.clear();
+      _dismissedLowStockLineKeys.clear();
     });
+    unawaited(_saveCartState());
   }
 
   void _removeBoardFromCart(String boardId) {
     setState(() {
       _boardCartQtyById.remove(boardId);
     });
+    unawaited(_saveCartState());
   }
 
   void _removeManualLineAt(int index) {
@@ -1174,6 +1522,7 @@ class _BoardsPageState extends State<BoardsPage> {
     setState(() {
       _manualLines.removeAt(index);
     });
+    unawaited(_saveCartState());
   }
 
   Future<void> _showBoardCartDialog(
@@ -1228,6 +1577,7 @@ class _BoardsPageState extends State<BoardsPage> {
         _boardCartQtyById[board.id] = result;
       }
     });
+    unawaited(_saveCartState());
   }
 
   Future<void> _showAddManualLineDialog() async {
@@ -1319,7 +1669,7 @@ class _BoardsPageState extends State<BoardsPage> {
     }
     final desc = description.text.trim();
     setState(() {
-      _manualLines.add(
+      _addOrMergeManualLine(
         ManualProcurementLine(
           partNumber: pn.isEmpty ? dk : pn,
           digikeyPartNumber: dk.isEmpty ? null : dk,
@@ -1330,6 +1680,7 @@ class _BoardsPageState extends State<BoardsPage> {
         ),
       );
     });
+    unawaited(_saveCartState());
   }
 
   Future<void> _showAddInventoryLineDialog(
@@ -1355,6 +1706,13 @@ class _BoardsPageState extends State<BoardsPage> {
 
     String selectedId = docs.first.id;
     int qty = 1;
+    final options =
+        docs
+            .map(
+              (doc) =>
+                  SearchablePartPicker.inventoryDocToOption(doc.id, doc.data()),
+            )
+            .toList();
     final added = await showDialog<bool>(
       context: context,
       builder:
@@ -1367,35 +1725,26 @@ class _BoardsPageState extends State<BoardsPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        DropdownButtonFormField<String>(
-                          initialValue: selectedId,
-                          decoration: const InputDecoration(
-                            labelText: 'Inventory Item',
-                          ),
-                          items:
-                              docs.map((doc) {
-                                final d = doc.data();
-                                final part =
-                                    (d[FirestoreFields.partNumber] ?? '')
-                                        .toString();
-                                final desc =
-                                    (d[FirestoreFields.description] ?? '')
-                                        .toString();
-                                final stock =
-                                    (d[FirestoreFields.qty] as num?)?.toInt() ??
-                                    0;
-                                return DropdownMenuItem<String>(
-                                  value: doc.id,
-                                  child: Text(
-                                    '$part (stock $stock) ${desc.isEmpty ? '' : '- $desc'}',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                );
-                              }).toList(),
+                        SearchablePartPicker(
+                          key: ValueKey(selectedId),
+                          currentValue: selectedId,
+                          optionsProvider: (_) async => options,
+                          rowData: const <String, dynamic>{},
+                          colorScheme: Theme.of(ctx).colorScheme,
+                          outlined: true,
+                          labelText: 'Inventory Item',
+                          autoOpen: false,
                           onChanged: (v) {
-                            if (v == null) return;
+                            if (v == null || v.isEmpty) return;
                             setLocal(() => selectedId = v);
                           },
+                        ),
+                        const SizedBox(height: 8),
+                        _InventorySelectionPreview(
+                          data:
+                              docs
+                                  .firstWhere((doc) => doc.id == selectedId)
+                                  .data(),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -1442,12 +1791,14 @@ class _BoardsPageState extends State<BoardsPage> {
         (data[FirestoreFields.vendorLink] ?? '').toString().trim();
 
     setState(() {
-      _manualLines.add(
+      _addOrMergeManualLine(
         ManualProcurementLine(
           partNumber: partNumber.isEmpty ? doc.id : partNumber,
           digikeyPartNumber: ProcurementPlannerService.extractDigiKeyPartNumber(
             vendorLink,
-            fallbackPartNumber: partNumber,
+            fallbackPartNumber:
+                (data[FirestoreFields.digiKeyPartNumber] ?? partNumber)
+                    .toString(),
           ),
           description: description.isEmpty ? partNumber : description,
           quantity: qty,
@@ -1457,6 +1808,91 @@ class _BoardsPageState extends State<BoardsPage> {
         ),
       );
     });
+    unawaited(_saveCartState());
+  }
+
+  Future<void> _showPasteCartDialog() async {
+    final controller = TextEditingController();
+    final pasted = await showDialog<String>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Paste Cart Data'),
+            content: SizedBox(
+              width: 620,
+              child: TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 10,
+                maxLines: 18,
+                decoration: const InputDecoration(
+                  labelText: 'Cart rows',
+                  hintText:
+                      'Paste DigiKey CSV or quick-order lines like "497-15115-1-ND, 3"',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, controller.text),
+                icon: const Icon(Icons.content_paste_go_outlined),
+                label: const Text('Add To Cart'),
+              ),
+            ],
+          ),
+    );
+    controller.dispose();
+
+    if (pasted == null) return;
+    final lines = CartPasteParser.parse(pasted);
+    if (lines.isEmpty) {
+      _showInfo('No cart rows found. Paste CSV or quick-order part/qty lines.');
+      return;
+    }
+
+    setState(() {
+      for (final line in lines) {
+        _addOrMergeManualLine(line);
+      }
+    });
+    unawaited(_saveCartState());
+    _showInfo('Added ${lines.length} pasted cart line(s).');
+  }
+
+  void _addOrMergeManualLine(ManualProcurementLine line) {
+    final idx = _manualLines.indexWhere((existing) {
+      return existing.partNumber.trim().toLowerCase() ==
+              line.partNumber.trim().toLowerCase() &&
+          (existing.digikeyPartNumber ?? '').trim().toLowerCase() ==
+              (line.digikeyPartNumber ?? '').trim().toLowerCase() &&
+          existing.description.trim().toLowerCase() ==
+              line.description.trim().toLowerCase() &&
+          (existing.vendorLink ?? '').trim().toLowerCase() ==
+              (line.vendorLink ?? '').trim().toLowerCase();
+    });
+
+    if (idx < 0) {
+      _manualLines.add(line);
+      return;
+    }
+
+    final existing = _manualLines[idx];
+    _manualLines[idx] = ManualProcurementLine(
+      partNumber: existing.partNumber,
+      digikeyPartNumber: existing.digikeyPartNumber,
+      description: existing.description,
+      quantity: existing.quantity + line.quantity,
+      vendorLink: existing.vendorLink,
+      partType: existing.partType ?? line.partType,
+      package: existing.package ?? line.package,
+      boardLabel: existing.boardLabel,
+    );
   }
 
   void _copyDigiKeyCsv(ProcurementPlan plan) async {
@@ -1563,28 +1999,13 @@ class _BoardsPageState extends State<BoardsPage> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Confirm'),
+                child: const Text('Make Boards'),
               ),
             ],
           ),
     );
 
     if (confirm != true || !context.mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (ctx) => const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Text('Subtracting parts from inventory...'),
-              ],
-            ),
-          ),
-    );
 
     try {
       await buildService.makeBoards(
@@ -1593,26 +2014,17 @@ class _BoardsPageState extends State<BoardsPage> {
         lineSelections: selections,
         inventorySnapshot: inventory,
       );
-
       if (!context.mounted) return;
-      Navigator.pop(context);
+      final skippedMsg =
+          skippedCount == 0 ? '' : ' Skipped $skippedCount BOM line(s).';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          content: Text('Made $qty x ${board.name}.$skippedMsg'),
           showCloseIcon: true,
-          content: Text(
-            skippedCount > 0
-                ? 'Built $qty x ${board.name} with $skippedCount skipped BOM line(s)'
-                : 'Built $qty x ${board.name}',
-          ),
-          action: SnackBarAction(
-            label: 'View History',
-            onPressed: () => context.go('/admin'),
-          ),
         ),
       );
     } on BoardBuildException catch (e) {
       if (!context.mounted) return;
-      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.message),
@@ -1622,15 +2034,67 @@ class _BoardsPageState extends State<BoardsPage> {
       );
     } catch (e) {
       if (!context.mounted) return;
-      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: $e'),
+          content: Text('Failed to make board: $e'),
           backgroundColor: Colors.red,
           showCloseIcon: true,
         ),
       );
     }
+  }
+}
+
+class _InventorySelectionPreview extends StatelessWidget {
+  final Map<String, dynamic> data;
+
+  const _InventorySelectionPreview({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final part = (data[FirestoreFields.partNumber] ?? '').toString();
+    final description = (data[FirestoreFields.description] ?? '').toString();
+    final type = (data[FirestoreFields.type] ?? '').toString();
+    final value = (data[FirestoreFields.value] ?? '').toString();
+    final package = (data[FirestoreFields.package] ?? '').toString();
+    final qty = (data[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+    final pieces = [
+      type,
+      value,
+      package,
+    ].where((piece) => piece.trim().isNotEmpty).join(' / ');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.outlineVariant),
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            part.isEmpty ? '(no part #)' : part,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (description.isNotEmpty)
+            Text(
+              description,
+              style: TextStyle(color: cs.onSurfaceVariant),
+              overflow: TextOverflow.ellipsis,
+            ),
+          const SizedBox(height: 4),
+          Text(
+            [if (pieces.isNotEmpty) pieces, 'Stock $qty'].join(' - '),
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
   }
 }
 

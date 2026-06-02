@@ -1,4 +1,5 @@
 import '../constants/firestore_constants.dart';
+import 'digikey_part_resolver.dart';
 import 'csv_parser_service.dart';
 
 /// Maps parsed inventory CSV rows into Firestore inventory documents.
@@ -12,6 +13,9 @@ class InventoryCsvMapper {
     'Price Per Unit',
     'Unit Price',
     'Part Number',
+    'DigiKey Part Number',
+    'Digi-Key Part Number',
+    'DigiKey PN',
     'Manufacturer Part Number',
   ];
 
@@ -58,6 +62,9 @@ class InventoryCsvMapper {
       'Unit Price',
     ]);
     final digiKeyPartNumber = _firstNonEmpty(parseResult, row, const [
+      'DigiKey Part Number',
+      'Digi-Key Part Number',
+      'DigiKey PN',
       'Part Number',
     ]);
     final manufacturerPartNumber = _firstNonEmpty(parseResult, row, const [
@@ -65,7 +72,9 @@ class InventoryCsvMapper {
     ]);
 
     final link =
-        rawLink.isNotEmpty ? rawLink : _buildDigiKeySearchUrl(digiKeyPartNumber);
+        rawLink.isNotEmpty
+            ? rawLink
+            : _buildDigiKeySearchUrl(digiKeyPartNumber);
     final extractedLinkPartNumber = _extractPartNumberFromDigiKeyLink(rawLink);
     final partNumber =
         manufacturerPartNumber.isNotEmpty
@@ -75,7 +84,7 @@ class InventoryCsvMapper {
             : digiKeyPartNumber;
     final pricePerUnit = _parsePrice(priceStr);
 
-    return _buildInventoryItem(
+    final item = _buildInventoryItem(
       itemName: itemName,
       qty: qty,
       partNumber: partNumber,
@@ -86,6 +95,12 @@ class InventoryCsvMapper {
       defaultPackage: defaultPackage,
       hasDirectProductLink: rawLink.isNotEmpty,
     );
+    final normalizedDigiKeyPartNumber =
+        DigiKeyPartResolver.normalize(digiKeyPartNumber) ?? digiKeyPartNumber;
+    if (normalizedDigiKeyPartNumber.isNotEmpty) {
+      item[FirestoreFields.digiKeyPartNumber] = normalizedDigiKeyPartNumber;
+    }
+    return item;
   }
 
   static String _firstNonEmpty(
@@ -106,10 +121,7 @@ class InventoryCsvMapper {
     return cleaned.isEmpty ? null : double.tryParse(cleaned);
   }
 
-  static String _buildNotes(
-    String notes, {
-    required String digiKeyPartNumber,
-  }) {
+  static String _buildNotes(String notes, {required String digiKeyPartNumber}) {
     if (digiKeyPartNumber.isEmpty) return notes;
     final digiKeyNote = 'DigiKey PN: $digiKeyPartNumber';
     if (notes.isEmpty) return digiKeyNote;

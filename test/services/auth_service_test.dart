@@ -9,7 +9,6 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     this.onSignInWithProvider,
     this.onSignInWithPopup,
     this.onSignInWithRedirect,
-    this.onSignOut,
   });
 
   final Stream<User?> authStateStream;

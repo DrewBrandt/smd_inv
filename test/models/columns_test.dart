@@ -37,13 +37,14 @@ void main() {
 
     test('UnifiedInventoryColumns defines expected fields and kinds', () {
       final all = UnifiedInventoryColumns.all;
-      expect(all.length, 10);
+      expect(all.length, 11);
 
       expect(all.first.field, 'part_#');
-      expect(all[5].field, 'qty');
-      expect(all[5].kind, CellKind.integer);
-      expect(all[7].field, 'price_per_unit');
-      expect(all[7].kind, CellKind.decimal);
+      expect(all[1].field, 'digikey_part_#');
+      expect(all[6].field, 'qty');
+      expect(all[6].kind, CellKind.integer);
+      expect(all[8].field, 'price_per_unit');
+      expect(all[8].kind, CellKind.decimal);
       expect(all.last.field, 'vendor_link');
       expect(all.last.kind, CellKind.url);
     });

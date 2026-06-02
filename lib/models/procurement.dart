@@ -58,6 +58,41 @@ class ManualProcurementLine {
     this.package,
     this.boardLabel = 'Manual',
   });
+
+  factory ManualProcurementLine.fromJson(Map<String, dynamic> json) {
+    return ManualProcurementLine(
+      partNumber: json['partNumber']?.toString() ?? '',
+      digikeyPartNumber: _emptyToNull(json['digikeyPartNumber']),
+      description: json['description']?.toString() ?? '',
+      quantity: _toInt(json['quantity']),
+      vendorLink: _emptyToNull(json['vendorLink']),
+      partType: _emptyToNull(json['partType']),
+      package: _emptyToNull(json['package']),
+      boardLabel: json['boardLabel']?.toString() ?? 'Manual',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'partNumber': partNumber,
+    'digikeyPartNumber': digikeyPartNumber,
+    'description': description,
+    'quantity': quantity,
+    'vendorLink': vendorLink,
+    'partType': partType,
+    'package': package,
+    'boardLabel': boardLabel,
+  };
+
+  static String? _emptyToNull(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  static int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
 }
 
 class ProcurementLine {
