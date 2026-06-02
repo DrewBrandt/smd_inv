@@ -268,8 +268,10 @@ class _BomImportWidgetState extends State<BomImportWidget> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                SizedBox(
-                  height: 280,
+                // Flex (rather than a fixed height) so the summary, banner and
+                // action row always fit inside the host's bounded height; the
+                // list scrolls internally and the buttons stay reachable.
+                Flexible(
                   child: ListView.builder(
                     itemCount: _parsedBom!.length,
                     itemBuilder: (context, i) {
