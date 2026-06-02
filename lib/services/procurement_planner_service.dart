@@ -25,6 +25,7 @@ class ProcurementPlannerService {
     final inventory =
         inventorySnapshot ??
         await _db.collection(FirestoreCollections.inventory).get();
+    final matcherIndex = InventoryMatcherIndex.fromSnapshot(inventory);
     final byId = {for (final doc in inventory.docs) doc.id: doc};
 
     final requiredByDocId = <String, int>{};
@@ -88,9 +89,9 @@ class ProcurementPlannerService {
         final attrs = line.requiredAttributes;
         final requiredQty = line.qty * order.quantity;
 
-        final matches = await InventoryMatcher.findMatches(
+        final matches = InventoryMatcher.findMatchesSync(
           bomAttributes: attrs,
-          inventorySnapshot: inventory,
+          matcherIndex: matcherIndex,
         );
 
         if (matches.isEmpty) {
@@ -292,7 +293,7 @@ class ProcurementPlannerService {
       if (value != null) return value;
     }
 
-    for (final key in ['item', 'part', 'partnumber', 'pn']) {
+    for (final key in ['item', 'part', 'partnumber', 'pn', 'keywords']) {
       final value = _normalizedDigiKeyPn(uri.queryParameters[key]);
       if (value != null) return value;
     }

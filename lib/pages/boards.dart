@@ -9,6 +9,7 @@ import 'package:smd_inv/models/procurement.dart';
 import 'package:smd_inv/models/readiness.dart';
 import 'package:smd_inv/services/auth_service.dart';
 import 'package:smd_inv/services/board_build_service.dart';
+import 'package:smd_inv/services/inventory_matcher.dart';
 import 'package:smd_inv/services/procurement_planner_service.dart';
 import 'package:smd_inv/services/readiness_calculator.dart';
 import 'package:smd_inv/widgets/board_card.dart';
@@ -31,9 +32,27 @@ class _BoardsPageState extends State<BoardsPage> {
   final BoardBuildService _buildService = BoardBuildService();
   final ProcurementPlannerService _procurementPlanner =
       ProcurementPlannerService();
+  final TextEditingController _boardSearchController = TextEditingController();
 
   final Map<String, int> _boardCartQtyById = <String, int>{};
   final List<ManualProcurementLine> _manualLines = <ManualProcurementLine>[];
+  String _boardSearchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _boardSearchController.addListener(() {
+      final next = _boardSearchController.text;
+      if (next == _boardSearchQuery) return;
+      setState(() => _boardSearchQuery = next);
+    });
+  }
+
+  @override
+  void dispose() {
+    _boardSearchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +77,7 @@ class _BoardsPageState extends State<BoardsPage> {
                   (a, b) =>
                       a.name.toLowerCase().compareTo(b.name.toLowerCase()),
                 );
+            final filteredBoards = _filterBoards(boards, _boardSearchQuery);
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream:
@@ -72,6 +92,16 @@ class _BoardsPageState extends State<BoardsPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final inventory = inventorySnap.data!;
+                final matcherIndex = InventoryMatcherIndex.fromSnapshot(
+                  inventory,
+                );
+                final readinessByBoardId = {
+                  for (final board in filteredBoards)
+                    board.id: ReadinessCalculator.calculateSync(
+                      board,
+                      matcherIndex: matcherIndex,
+                    ),
+                };
 
                 if (boards.isEmpty) {
                   return _buildEmptyState(canEdit);
@@ -80,75 +110,77 @@ class _BoardsPageState extends State<BoardsPage> {
                 return Column(
                   children: [
                     if (!canEdit) _buildViewOnlyBanner(),
-                    _buildHeader(canEdit, boards.length),
+                    _buildHeader(
+                      canEdit,
+                      totalBoardCount: boards.length,
+                      visibleBoardCount: filteredBoards.length,
+                    ),
                     const SizedBox(height: 12),
                     _buildProcurementPanel(boards, inventory),
                     const SizedBox(height: 12),
                     Expanded(
-                      child: GridView.builder(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
-                        ),
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 420,
-                              childAspectRatio: 0.72,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 16,
-                            ),
-                        itemCount: boards.length,
-                        itemBuilder: (context, i) {
-                          final b = boards[i];
-                          final cartQty = _boardCartQtyById[b.id] ?? 0;
-                          return FutureBuilder<Readiness>(
-                            future: ReadinessCalculator.calculate(
-                              b,
-                              inventorySnapshot: inventory,
-                            ),
-                            builder: (context, readinessSnap) {
-                              final r =
-                                  readinessSnap.data ??
-                                  const Readiness(
-                                    buildableQty: 0,
-                                    readyPct: 0.0,
-                                    shortfalls: [],
-                                  );
-
-                              return ImprovedBoardCard(
-                                board: b,
-                                readiness: r,
-                                canEdit: canEdit,
-                                cartQty: cartQty,
-                                onAddToCart:
-                                    () => _showBoardCartDialog(context, b),
-                                onOpen: () => context.go('/boards/${b.id}'),
-                                onDuplicate: () async {
-                                  if (!canEdit) return;
-                                  final newId = await _repo.duplicateBoard(
-                                    b.id,
-                                  );
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Cloned board: $newId'),
+                      child:
+                          filteredBoards.isEmpty
+                              ? _buildNoSearchResults()
+                              : GridView.builder(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 4,
+                                ),
+                                gridDelegate:
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 420,
+                                      childAspectRatio: 0.72,
+                                      crossAxisSpacing: 16,
+                                      mainAxisSpacing: 16,
                                     ),
+                                itemCount: filteredBoards.length,
+                                itemBuilder: (context, i) {
+                                  final b = filteredBoards[i];
+                                  final cartQty = _boardCartQtyById[b.id] ?? 0;
+                                  final readiness =
+                                      readinessByBoardId[b.id] ??
+                                      const Readiness(
+                                        buildableQty: 0,
+                                        readyPct: 0.0,
+                                        shortfalls: [],
+                                      );
+
+                                  return ImprovedBoardCard(
+                                    board: b,
+                                    readiness: readiness,
+                                    canEdit: canEdit,
+                                    cartQty: cartQty,
+                                    onAddToCart:
+                                        () => _showBoardCartDialog(context, b),
+                                    onOpen: () => context.go('/boards/${b.id}'),
+                                    onDuplicate: () async {
+                                      if (!canEdit) return;
+                                      final newId = await _repo.duplicateBoard(
+                                        b.id,
+                                      );
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Cloned board: $newId'),
+                                        ),
+                                      );
+                                    },
+                                    onMake:
+                                        canEdit
+                                            ? (qty) => _makeBoards(
+                                              context,
+                                              b,
+                                              qty,
+                                              _buildService,
+                                              inventory,
+                                            )
+                                            : null,
                                   );
                                 },
-                                onMake:
-                                    canEdit
-                                        ? (qty) => _makeBoards(
-                                          context,
-                                          b,
-                                          qty,
-                                          _buildService,
-                                        )
-                                        : null,
-                              );
-                            },
-                          );
-                        },
-                      ),
+                              ),
                     ),
                   ],
                 );
@@ -202,12 +234,20 @@ class _BoardsPageState extends State<BoardsPage> {
     );
   }
 
-  Widget _buildHeader(bool canEdit, int boardCount) {
+  Widget _buildHeader(
+    bool canEdit, {
+    required int totalBoardCount,
+    required int visibleBoardCount,
+  }) {
     final cs = Theme.of(context).colorScheme;
     final boardCartCount = _boardCartQtyById.values.fold<int>(
       0,
       (total, qty) => total + qty,
     );
+    final title =
+        _boardSearchQuery.trim().isEmpty
+            ? 'Boards ($totalBoardCount)'
+            : 'Boards ($visibleBoardCount/$totalBoardCount)';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -216,26 +256,96 @@ class _BoardsPageState extends State<BoardsPage> {
         border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.7)),
         color: cs.surfaceContainer,
       ),
-      child: Row(
+      child: Column(
         children: [
-          Text(
-            'Boards ($boardCount)',
-            style: Theme.of(context).textTheme.titleLarge,
+          Row(
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const Spacer(),
+              Chip(
+                avatar: const Icon(Icons.shopping_cart_outlined, size: 16),
+                label: Text('Cart $boardCartCount'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: canEdit ? () => context.go('/boards/new') : null,
+                icon: const Icon(Icons.add),
+                label: const Text('New Board'),
+              ),
+            ],
           ),
-          const Spacer(),
-          Chip(
-            avatar: const Icon(Icons.shopping_cart_outlined, size: 16),
-            label: Text('Cart $boardCartCount'),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: canEdit ? () => context.go('/boards/new') : null,
-            icon: const Icon(Icons.add),
-            label: const Text('New Board'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _boardSearchController,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Search boards by name, category, or part type',
+              suffixIcon:
+                  _boardSearchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                        onPressed: _boardSearchController.clear,
+                        icon: const Icon(Icons.clear),
+                        tooltip: 'Clear search',
+                      ),
+              border: const OutlineInputBorder(),
+              isDense: true,
+              filled: true,
+              fillColor: cs.surface,
+            ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildNoSearchResults() {
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.search_off, size: 48, color: cs.outline),
+          const SizedBox(height: 12),
+          Text(
+            'No boards match "${_boardSearchQuery.trim()}"',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try a different board name, category, or part type.',
+            style: TextStyle(color: cs.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<BoardDoc> _filterBoards(List<BoardDoc> boards, String rawQuery) {
+    final query = rawQuery.trim().toLowerCase();
+    if (query.isEmpty) return boards;
+
+    final terms =
+        query.split(RegExp(r'\s+')).where((term) => term.isNotEmpty).toList();
+    if (terms.isEmpty) return boards;
+
+    return boards.where((board) {
+      final bomTypes = board.bom
+          .map(
+            (line) =>
+                line.requiredAttributes['part_type']?.toString().trim() ?? '',
+          )
+          .where((value) => value.isNotEmpty)
+          .join(' ');
+      final searchable =
+          [
+            board.name,
+            board.category ?? '',
+            board.description ?? '',
+            bomTypes,
+          ].join(' ').toLowerCase();
+      return terms.every(searchable.contains);
+    }).toList();
   }
 
   Widget _buildProcurementPanel(
@@ -245,6 +355,19 @@ class _BoardsPageState extends State<BoardsPage> {
     final cs = Theme.of(context).colorScheme;
     final boardOrders = _toBoardOrders(boards);
     final hasAnyCartItems = boardOrders.isNotEmpty || _manualLines.isNotEmpty;
+
+    if (!hasAnyCartItems) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.7)),
+          color: cs.surfaceContainer,
+        ),
+        child: _buildPlannerPlaceholder(),
+      );
+    }
 
     return Container(
       width: double.infinity,
@@ -260,10 +383,6 @@ class _BoardsPageState extends State<BoardsPage> {
           inventorySnapshot: inventory,
         ),
         builder: (context, planSnap) {
-          if (!hasAnyCartItems) {
-            return _buildPlannerPlaceholder();
-          }
-
           if (!planSnap.hasData) {
             return const SizedBox(
               height: 120,
@@ -903,14 +1022,77 @@ class _BoardsPageState extends State<BoardsPage> {
     BoardDoc board,
     int qty,
     BoardBuildService buildService,
+    QuerySnapshot<Map<String, dynamic>> inventory,
   ) async {
+    final activeBomCount = board.bom.where((line) => !line.ignored).length;
+    if (activeBomCount == 0) {
+      _showInfo('This board has no active BOM lines to build.');
+      return;
+    }
+
+    var selections = <int, BoardBuildLineSelection>{};
+    var preview = await buildService.previewBuild(
+      board: board,
+      quantity: qty,
+      inventorySnapshot: inventory,
+    );
+
+    if (!context.mounted) return;
+
+    if (preview.issues.isNotEmpty) {
+      final resolved = await showDialog<Map<int, BoardBuildLineSelection>>(
+        context: context,
+        builder:
+            (ctx) => _BoardBuildPrepDialog(
+              board: board,
+              quantity: qty,
+              buildService: buildService,
+              inventory: inventory,
+            ),
+      );
+      if (resolved == null || !context.mounted) return;
+
+      selections = resolved;
+      preview = await buildService.previewBuild(
+        board: board,
+        quantity: qty,
+        lineSelections: selections,
+        inventorySnapshot: inventory,
+      );
+      if (preview.issues.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Resolve each missing line with a substitute or mark it skipped before building.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
+    final skippedCount = preview.skippedLines.length;
+    final consumedLineCount = preview.consumedByDocId.length;
+    final substituteCount =
+        selections.values
+            .where(
+              (selection) =>
+                  !selection.skip &&
+                  (selection.inventoryDocId?.trim().isNotEmpty ?? false),
+            )
+            .length;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder:
           (ctx) => AlertDialog(
             title: Text('Make $qty x ${board.name}?'),
-            content: const Text(
-              'This will subtract required quantities from inventory.\n\nThis action can be undone from the History page.',
+            content: Text(
+              'This will subtract parts from $consumedLineCount inventory item(s).'
+              '${substituteCount > 0 ? '\n\nManual substitutes: $substituteCount line(s).' : ''}'
+              '${skippedCount > 0 ? '\n\nSkipped BOM lines: $skippedCount.' : ''}'
+              '\n\nThis action can be undone from the History page.',
             ),
             actions: [
               TextButton(
@@ -943,13 +1125,22 @@ class _BoardsPageState extends State<BoardsPage> {
     );
 
     try {
-      await buildService.makeBoards(board: board, quantity: qty);
+      await buildService.makeBoards(
+        board: board,
+        quantity: qty,
+        lineSelections: selections,
+        inventorySnapshot: inventory,
+      );
 
       if (!context.mounted) return;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Built $qty x ${board.name}'),
+          content: Text(
+            skippedCount > 0
+                ? 'Built $qty x ${board.name} with $skippedCount skipped BOM line(s)'
+                : 'Built $qty x ${board.name}',
+          ),
           action: SnackBarAction(
             label: 'View History',
             onPressed: () => context.go('/admin'),
@@ -969,6 +1160,304 @@ class _BoardsPageState extends State<BoardsPage> {
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
+  }
+}
+
+class _BoardBuildPrepDialog extends StatefulWidget {
+  final BoardDoc board;
+  final int quantity;
+  final BoardBuildService buildService;
+  final QuerySnapshot<Map<String, dynamic>> inventory;
+
+  const _BoardBuildPrepDialog({
+    required this.board,
+    required this.quantity,
+    required this.buildService,
+    required this.inventory,
+  });
+
+  @override
+  State<_BoardBuildPrepDialog> createState() => _BoardBuildPrepDialogState();
+}
+
+class _BoardBuildPrepDialogState extends State<_BoardBuildPrepDialog> {
+  late final List<QueryDocumentSnapshot<Map<String, dynamic>>> _inventoryDocs;
+  final Map<int, BoardBuildLineSelection> _selections =
+      <int, BoardBuildLineSelection>{};
+  late Future<BoardBuildPreview> _previewFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _inventoryDocs =
+        widget.inventory.docs.toList()..sort((a, b) {
+          final aPart =
+              (a.data()[FirestoreFields.partNumber] ?? '')
+                  .toString()
+                  .toLowerCase();
+          final bPart =
+              (b.data()[FirestoreFields.partNumber] ?? '')
+                  .toString()
+                  .toLowerCase();
+          return aPart.compareTo(bPart);
+        });
+    _refreshPreview();
+  }
+
+  void _refreshPreview() {
+    _previewFuture = widget.buildService.previewBuild(
+      board: widget.board,
+      quantity: widget.quantity,
+      lineSelections: _selections,
+      inventorySnapshot: widget.inventory,
+    );
+  }
+
+  void _setSkip(int lineIndex, bool skip) {
+    setState(() {
+      final current = _selections[lineIndex] ?? const BoardBuildLineSelection();
+      _selections[lineIndex] = BoardBuildLineSelection(
+        inventoryDocId: skip ? null : current.inventoryDocId,
+        skip: skip,
+      );
+      _refreshPreview();
+    });
+  }
+
+  void _setSubstitute(int lineIndex, String? inventoryDocId) {
+    setState(() {
+      _selections[lineIndex] = BoardBuildLineSelection(
+        inventoryDocId: inventoryDocId,
+        skip: false,
+      );
+      _refreshPreview();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: Text('Resolve BOM For ${widget.board.name}'),
+      content: SizedBox(
+        width: 760,
+        child: FutureBuilder<BoardBuildPreview>(
+          future: _previewFuture,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const SizedBox(
+                height: 240,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final preview = snapshot.data!;
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 520),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Quantity: ${widget.quantity}. Pick a substitute inventory item or skip each blocked BOM line.',
+                    ),
+                    const SizedBox(height: 12),
+                    if (preview.issues.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: cs.primaryContainer.withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          preview.skippedLines.isEmpty
+                              ? 'Everything is resolved and ready to build.'
+                              : 'All remaining issues are resolved. ${preview.skippedLines.length} line(s) will be skipped.',
+                        ),
+                      )
+                    else
+                      ...preview.issues.map((issue) {
+                        final selection = _selections[issue.lineIndex];
+                        final chosenId =
+                            selection?.skip == true
+                                ? null
+                                : selection?.inventoryDocId;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _BoardBuildIssueCard(
+                            issue: issue,
+                            inventoryDocs: _inventoryDocs,
+                            selectedDocId: chosenId,
+                            skipped: selection?.skip == true,
+                            onSkipChanged:
+                                (value) => _setSkip(issue.lineIndex, value),
+                            onSubstituteChanged:
+                                (value) =>
+                                    _setSubstitute(issue.lineIndex, value),
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FutureBuilder<BoardBuildPreview>(
+          future: _previewFuture,
+          builder: (context, snapshot) {
+            final canContinue = snapshot.data?.issues.isEmpty == true;
+            return FilledButton(
+              onPressed:
+                  canContinue
+                      ? () => Navigator.pop(
+                        context,
+                        Map<int, BoardBuildLineSelection>.from(_selections),
+                      )
+                      : null,
+              child: const Text('Continue'),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _BoardBuildIssueCard extends StatelessWidget {
+  final BoardBuildIssue issue;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> inventoryDocs;
+  final String? selectedDocId;
+  final bool skipped;
+  final ValueChanged<bool> onSkipChanged;
+  final ValueChanged<String?> onSubstituteChanged;
+
+  const _BoardBuildIssueCard({
+    required this.issue,
+    required this.inventoryDocs,
+    required this.selectedDocId,
+    required this.skipped,
+    required this.onSkipChanged,
+    required this.onSubstituteChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final severityColor = switch (issue.kind) {
+      BoardBuildIssueKind.unresolved => cs.error,
+      BoardBuildIssueKind.ambiguous => cs.secondary,
+      BoardBuildIssueKind.insufficientStock => Colors.orange,
+    };
+    final candidateSummary =
+        issue.candidates.isEmpty
+            ? null
+            : issue.candidates.map(_inventoryLabel).join(', ');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: severityColor.withValues(alpha: 0.45)),
+        color: severityColor.withValues(alpha: 0.08),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            issue.partLabel,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${issue.line.designators} • need ${issue.requiredQty}',
+            style: TextStyle(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _issueSummary(issue),
+            style: TextStyle(color: severityColor, fontWeight: FontWeight.w600),
+          ),
+          if (candidateSummary != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Current matches: $candidateSummary',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String?>(
+            initialValue: selectedDocId,
+            decoration: const InputDecoration(
+              labelText: 'Substitute inventory item',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('Choose substitute...'),
+              ),
+              ...inventoryDocs.map((doc) {
+                return DropdownMenuItem<String?>(
+                  value: doc.id,
+                  child: Text(
+                    _inventoryLabel(doc),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }),
+            ],
+            onChanged: skipped ? null : onSubstituteChanged,
+          ),
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            value: skipped,
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text('Skip this BOM line'),
+            subtitle: const Text(
+              'Build the board without consuming inventory for this line.',
+            ),
+            onChanged: (value) => onSkipChanged(value ?? false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _issueSummary(BoardBuildIssue issue) {
+    return switch (issue.kind) {
+      BoardBuildIssueKind.unresolved =>
+        'No inventory match found for this BOM line.',
+      BoardBuildIssueKind.ambiguous =>
+        'Multiple inventory matches found. Choose one or skip it.',
+      BoardBuildIssueKind.insufficientStock =>
+        'Selected inventory only has ${issue.availableQty} of ${issue.requiredQty} needed.',
+    };
+  }
+
+  static String _inventoryLabel(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final part = (data[FirestoreFields.partNumber] ?? doc.id).toString().trim();
+    final value = (data[FirestoreFields.value] ?? '').toString().trim();
+    final package = (data[FirestoreFields.package] ?? '').toString().trim();
+    final qty = (data[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+    final bits = <String>[part];
+    if (value.isNotEmpty) bits.add(value);
+    if (package.isNotEmpty) bits.add(package);
+    bits.add('stock $qty');
+    return bits.join(' - ');
   }
 }
 

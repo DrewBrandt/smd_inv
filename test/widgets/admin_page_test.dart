@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -108,6 +107,7 @@ Future<void> _pumpAdmin(
   required BoardBuildService buildService,
   required InventoryAuditService auditService,
   Future<void> Function(String path, String contents)? writeFile,
+  Future<String> Function(String path)? readFile,
   bool isWeb = false,
 }) async {
   await tester.pumpWidget(
@@ -118,6 +118,7 @@ Future<void> _pumpAdmin(
           buildService: buildService,
           auditService: auditService,
           writeFile: writeFile,
+          readFile: readFile,
           isWeb: isWeb,
         ),
       ),
@@ -372,49 +373,46 @@ void main() {
     expect(audit.replaceCalls, 0);
   });
 
-  testWidgets('import replace reads CSV from file path when bytes are null', (
-    tester,
-  ) async {
-    final db = FakeFirebaseFirestore();
-    final audit = _FakeAuditService(firestore: db);
-    final csvPath =
-        '${Directory.current.path}${Platform.pathSeparator}admin_import_test.csv';
-    final csvFile = File(csvPath);
-    if (await csvFile.exists()) {
-      await csvFile.delete();
-    }
-    await csvFile.writeAsString('part_#,qty\nR-100,9\n');
-    fakePicker.pickResult = FilePickerResult([
-      PlatformFile(name: 'audit.csv', size: 20, path: csvPath),
-    ]);
+  testWidgets(
+    'import replace reads CSV from file path when bytes are null',
+    (tester) async {
+      final db = FakeFirebaseFirestore();
+      final audit = _FakeAuditService(firestore: db);
+      const csvPath = r'C:\tmp\admin_import_test.csv';
+      fakePicker.pickResult = FilePickerResult([
+        PlatformFile(name: 'audit.csv', size: 20, path: csvPath),
+      ]);
 
-    await _pumpAdmin(
-      tester,
-      db: db,
-      buildService: BoardBuildService(firestore: db),
-      auditService: audit,
-    );
+      await _pumpAdmin(
+        tester,
+        db: db,
+        buildService: BoardBuildService(firestore: db),
+        auditService: audit,
+        readFile: (path) async {
+          expect(path, csvPath);
+          return 'part_#,qty\nR-100,9\n';
+        },
+      );
 
-    await tester.tap(find.text('Import & Replace'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.text('Replace All'));
+      await tester.tap(find.text('Import & Replace'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('Replace All'));
 
-    var replaced = false;
-    for (var i = 0; i < 80; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-      if (audit.replaceCalls == 1) {
-        replaced = true;
-        break;
+      var replaced = false;
+      for (var i = 0; i < 80; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (audit.replaceCalls == 1) {
+          replaced = true;
+          break;
+        }
       }
-    }
 
-    expect(replaced, isTrue);
-    expect(audit.lastImportCsv, contains('R-100'));
-    if (await csvFile.exists()) {
-      await csvFile.delete();
-    }
-  }, timeout: const Timeout(Duration(seconds: 20)));
+      expect(replaced, isTrue);
+      expect(audit.lastImportCsv, contains('R-100'));
+    },
+    timeout: const Timeout(Duration(seconds: 20)),
+  );
 
   testWidgets('ensureCanEdit shows snackbar when action is no longer allowed', (
     tester,

@@ -163,7 +163,7 @@ void main() {
     await _seedBoard(db, boardId);
     await _pumpEditor(tester, db, fakeRepo, '/boards/$boardId');
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Add Line'));
+    await tester.tap(find.text('Add Line'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -271,7 +271,9 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  testWidgets('Board editor clone surfaces repository failures', (tester) async {
+  testWidgets('Board editor clone surfaces repository failures', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(1800, 1200));
     const boardId = 'board-clone-fail';
     final db = FakeFirebaseFirestore();
@@ -325,7 +327,9 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  testWidgets('Board editor delete surfaces repository failures', (tester) async {
+  testWidgets('Board editor delete surfaces repository failures', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(1800, 1200));
     const boardId = 'board-delete-fail';
     final db = FakeFirebaseFirestore();
@@ -344,81 +348,82 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  testWidgets('Board editor replaces BOM through import flow and can cancel import view', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1800, 1200));
-    const boardId = 'board-import-flow';
-    final db = FakeFirebaseFirestore();
-    final fakeRepo = _FakeBoardsRepo();
-    await _seedBoard(
-      db,
-      boardId,
-      bom: [
+  testWidgets(
+    'Board editor replaces BOM through import flow and can cancel import view',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1800, 1200));
+      const boardId = 'board-import-flow';
+      final db = FakeFirebaseFirestore();
+      final fakeRepo = _FakeBoardsRepo();
+      await _seedBoard(
+        db,
+        boardId,
+        bom: [
+          {
+            'designators': 'R0',
+            'qty': 1,
+            FirestoreFields.requiredAttributes: {'part_type': 'resistor'},
+            '_match_status': 'missing',
+            '_ignored': false,
+          },
+        ],
+      );
+      await _pumpEditor(tester, db, fakeRepo, '/boards/$boardId');
+
+      await tester.tap(find.text('Replace BOM'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Replace BOM?'), findsOneWidget);
+      await tester.tap(find.text('Cancel').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(BomImportWidget), findsNothing);
+
+      await tester.tap(find.text('Replace BOM'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Replace'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.byType(BomImportWidget), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BomImportWidget),
+          matching: find.text('Cancel'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(BomImportWidget), findsNothing);
+
+      await tester.tap(find.text('Replace BOM'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Replace'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      final importWidget = tester.widget<BomImportWidget>(
+        find.byType(BomImportWidget),
+      );
+      importWidget.onImport([
         {
-          'designators': 'R0',
+          'designators': 'U1',
           'qty': 1,
-          FirestoreFields.requiredAttributes: {'part_type': 'resistor'},
-          '_match_status': 'missing',
+          FirestoreFields.requiredAttributes: {'part_type': 'ic'},
+          '_match_status': 'matched',
           '_ignored': false,
         },
-      ],
-    );
-    await _pumpEditor(tester, db, fakeRepo, '/boards/$boardId');
+      ]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-    await tester.tap(find.text('Replace BOM'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Replace BOM?'), findsOneWidget);
-    await tester.tap(find.text('Cancel').last);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(BomImportWidget), findsNothing);
-
-    await tester.tap(find.text('Replace BOM'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('Replace'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.byType(BomImportWidget), findsOneWidget);
-    await tester.tap(
-      find.descendant(
-        of: find.byType(BomImportWidget),
-        matching: find.text('Cancel'),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(BomImportWidget), findsNothing);
-
-    await tester.tap(find.text('Replace BOM'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('Replace'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    final importWidget = tester.widget<BomImportWidget>(
-      find.byType(BomImportWidget),
-    );
-    importWidget.onImport([
-      {
-        'designators': 'U1',
-        'qty': 1,
-        FirestoreFields.requiredAttributes: {'part_type': 'ic'},
-        '_match_status': 'matched',
-        '_ignored': false,
-      },
-    ]);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.textContaining('Imported 1 BOM lines'), findsOneWidget);
-    expect(find.text('1 total'), findsOneWidget);
-    await tester.binding.setSurfaceSize(null);
-  });
+      expect(find.textContaining('Imported 1 BOM lines'), findsOneWidget);
+      expect(find.text('1 total'), findsOneWidget);
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
 
   testWidgets('Board editor save sanitizes BOM lines for persisted schema', (
     tester,
@@ -480,7 +485,8 @@ void main() {
     expect(savedBom.first[FirestoreFields.description], 'Primary resistor');
     expect(savedBom.first[FirestoreFields.notes], 'critical');
     expect(
-      (savedBom.first[FirestoreFields.requiredAttributes] as Map<String, dynamic>)
+      (savedBom.first[FirestoreFields.requiredAttributes]
+              as Map<String, dynamic>)
           .containsKey('_tmp'),
       isFalse,
     );
@@ -491,70 +497,71 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  testWidgets('Board editor re-pair updates matched, ambiguous, and missing chips', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1800, 1200));
-    const boardId = 'board-repair';
-    final db = FakeFirebaseFirestore();
-    final fakeRepo = _FakeBoardsRepo();
-    await _seedInventory(db);
-    await _seedBoard(
-      db,
-      boardId,
-      bom: [
-        {
-          'designators': 'U1',
-          'qty': 1,
-          FirestoreFields.requiredAttributes: {
-            'part_type': 'resistor',
-            FirestoreFields.value: '123k',
-            'size': '0603',
-            FirestoreFields.partNumber: '',
-            FirestoreFields.selectedComponentRef: null,
+  testWidgets(
+    'Board editor re-pair updates matched, ambiguous, and missing chips',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1800, 1200));
+      const boardId = 'board-repair';
+      final db = FakeFirebaseFirestore();
+      final fakeRepo = _FakeBoardsRepo();
+      await _seedInventory(db);
+      await _seedBoard(
+        db,
+        boardId,
+        bom: [
+          {
+            'designators': 'U1',
+            'qty': 1,
+            FirestoreFields.requiredAttributes: {
+              'part_type': 'resistor',
+              FirestoreFields.value: '123k',
+              'size': '0603',
+              FirestoreFields.partNumber: '',
+              FirestoreFields.selectedComponentRef: null,
+            },
+            '_match_status': 'pending',
+            '_ignored': false,
           },
-          '_match_status': 'pending',
-          '_ignored': false,
-        },
-        {
-          'designators': 'U2',
-          'qty': 1,
-          FirestoreFields.requiredAttributes: {
-            'part_type': 'ic',
-            FirestoreFields.value: 'ONE',
-            'size': 'QFN-32',
-            FirestoreFields.partNumber: '',
-            FirestoreFields.selectedComponentRef: null,
+          {
+            'designators': 'U2',
+            'qty': 1,
+            FirestoreFields.requiredAttributes: {
+              'part_type': 'ic',
+              FirestoreFields.value: 'ONE',
+              'size': 'QFN-32',
+              FirestoreFields.partNumber: '',
+              FirestoreFields.selectedComponentRef: null,
+            },
+            '_match_status': 'pending',
+            '_ignored': false,
           },
-          '_match_status': 'pending',
-          '_ignored': false,
-        },
-        {
-          'designators': 'U3',
-          'qty': 1,
-          FirestoreFields.requiredAttributes: {
-            'part_type': 'ic',
-            FirestoreFields.value: 'DUP',
-            'size': 'QFN-32',
-            FirestoreFields.partNumber: '',
-            FirestoreFields.selectedComponentRef: 'missing-doc',
+          {
+            'designators': 'U3',
+            'qty': 1,
+            FirestoreFields.requiredAttributes: {
+              'part_type': 'ic',
+              FirestoreFields.value: 'DUP',
+              'size': 'QFN-32',
+              FirestoreFields.partNumber: '',
+              FirestoreFields.selectedComponentRef: 'missing-doc',
+            },
+            '_match_status': 'pending',
+            '_ignored': false,
           },
-          '_match_status': 'pending',
-          '_ignored': false,
-        },
-      ],
-    );
+        ],
+      );
 
-    await _pumpEditor(tester, db, fakeRepo, '/boards/$boardId');
-    await tester.tap(find.text('Re-pair All'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 900));
+      await _pumpEditor(tester, db, fakeRepo, '/boards/$boardId');
+      await tester.tap(find.text('Re-pair All'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
 
-    expect(find.text('1 matched'), findsOneWidget);
-    expect(find.text('1 ambiguous'), findsOneWidget);
-    expect(find.text('1 missing'), findsOneWidget);
-    await tester.binding.setSurfaceSize(null);
-  });
+      expect(find.text('1 matched'), findsOneWidget);
+      expect(find.text('1 ambiguous'), findsOneWidget);
+      expect(find.text('1 missing'), findsOneWidget);
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
 
   testWidgets('Board editor uses latest permission check in action callbacks', (
     tester,
@@ -565,7 +572,7 @@ void main() {
     await _pumpEditor(tester, db, fakeRepo, '/boards/new');
 
     AuthService.canEditOverride = (_) => false;
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Add Line'));
+    await tester.tap(find.text('Add Line'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 

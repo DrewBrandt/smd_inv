@@ -132,6 +132,19 @@ void main() {
         expect(matches.first.data()['qty'], 500);
       });
 
+      test('findMatchesSync uses a prebuilt matcher index', () async {
+        final inventory = await fakeFirestore.collection('inventory').get();
+        final index = InventoryMatcherIndex.fromSnapshot(inventory);
+
+        final matches = InventoryMatcher.findMatchesSync(
+          bomAttributes: {'part_#': 'R100', 'part_type': 'resistor'},
+          matcherIndex: index,
+        );
+
+        expect(matches.length, 1);
+        expect(matches.first.data()['part_#'], 'R100');
+      });
+
       test('matches part number case-insensitively', () async {
         final inventory = await fakeFirestore.collection('inventory').get();
 

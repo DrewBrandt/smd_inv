@@ -1,0 +1,6 @@
+part_#,type,value,package,description,qty,location,price_per_unit,notes,vendor_link,datasheet
+HDC2010YPAR,ic,,"6-WFBGA, DSBGA","Humidity, Temperature 0 ~ 100% RH I2C ±2% 8 s Surface Mount",,,1.64,,https://www.digikey.com/en/products/detail/texas-instruments/HDC2010YPAR/7561364,https://www.ti.com/general/docs/suppproductinfo.tsp?distId=10&gotoUrl=https%3A%2F%2Fwww.ti.com%2Flit%2Fgpn%2Fhdc2010
+BMI323,ic,,14-VFLGA,"Accelerometer, Gyroscope, 6 Axis Sensor I2C, I3C, SPI Output",,,3.4,,https://www.digikey.com/en/products/detail/bosch-sensortec/BMI323/16719593,https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi323-ds000.pdf
+MMC5983MA,ic,,16-LGA (3x3),"Magnetoresistive Sensor X, Y, Z Axis 16-LGA (3x3)",,,2.93,,https://www.digikey.com/en/products/detail/memsic-inc/MMC5983MA/10452795,//mm.digikey.com/Volume0/opasdata/d220001/medias/docus/333/MMC5983MA_RevA_4-3-19.pdf
+LPS22HHTR,ic,,10-WFLGA,Pressure Sensor 3.77PSI ~ 18.27PSI (26kPa ~ 126kPa) Absolute 24 b 10-WFLGA,,,2.86,,https://www.digikey.com/en/products/detail/stmicroelectronics/LPS22HHTR/9586578,https://www.st.com/resource/en/datasheet/lps22hh.pdf
+TPS3842A011DRLR,ic,,"SOT-563, SOT-666",Supervisor Open Drain or Open Collector 1 Channel SOT-563,,,1.67,,https://www.digikey.com/en/products/detail/texas-instruments/TPS3842A011DRLR/25603677,https://www.ti.com/lit/ds/symlink/tps3842.pdf

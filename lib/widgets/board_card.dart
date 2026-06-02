@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../models/board.dart';
 import '../models/readiness.dart';
+import '../utils/board_category_colors.dart';
 import '../utils/image_url_utils.dart';
 
 class ImprovedBoardCard extends StatelessWidget {
@@ -33,11 +34,29 @@ class ImprovedBoardCard extends StatelessWidget {
     final buildableQty = readiness.buildableQty;
     final readyPct = readiness.readyPct;
     final imageUrl = normalizeBoardImageUrl(board.imageUrl);
+    final hasActiveBom = board.bom.any((line) => !line.ignored);
+    final categoryColor = boardCategoryColor(board.category, cs.primary);
+    final cardTint = Color.alphaBlend(
+      categoryColor.withValues(alpha: 0.05),
+      cs.surface,
+    );
+    final headerStart = Color.alphaBlend(
+      categoryColor.withValues(alpha: 0.28),
+      cs.primaryContainer.withValues(alpha: 0.65),
+    );
+    final headerEnd = Color.alphaBlend(
+      categoryColor.withValues(alpha: 0.10),
+      cs.surfaceContainerHigh,
+    );
 
     return Card(
       elevation: 1,
+      color: cardTint,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: categoryColor.withValues(alpha: 0.18)),
+      ),
       child: InkWell(
         onTap: onOpen,
         child: Column(
@@ -48,24 +67,18 @@ class ImprovedBoardCard extends StatelessWidget {
               height: 120,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    cs.primaryContainer.withValues(alpha: 0.65),
-                    cs.surfaceContainerHigh,
-                  ],
+                  colors: [headerStart, headerEnd],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
               ),
               child:
                   imageUrl != null
-                      ? Image.network(
-                        imageUrl,
+                      ? buildBoardImage(
+                        imageUrl: imageUrl,
+                        fallback: _buildPlaceholderIcon(cs),
                         fit: BoxFit.cover,
                         width: double.infinity,
-                        webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
-                        errorBuilder:
-                            (context, error, stackTrace) =>
-                                _buildPlaceholderIcon(cs),
                       )
                       : _buildPlaceholderIcon(cs),
             ),
@@ -93,9 +106,19 @@ class ImprovedBoardCard extends StatelessWidget {
                         if (board.category != null &&
                             board.category!.isNotEmpty)
                           Chip(
+                            backgroundColor: categoryColor.withValues(
+                              alpha: 0.16,
+                            ),
+                            side: BorderSide(
+                              color: categoryColor.withValues(alpha: 0.32),
+                            ),
                             label: Text(
                               board.category!,
-                              style: const TextStyle(fontSize: 11),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: categoryColor,
+                              ),
                             ),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -283,7 +306,7 @@ class ImprovedBoardCard extends StatelessWidget {
                         Expanded(
                           child: FilledButton.icon(
                             onPressed:
-                                canEdit && buildableQty > 0 && onMake != null
+                                canEdit && hasActiveBom && onMake != null
                                     ? () => _showMakeDialog(context)
                                     : null,
                             icon: const Icon(Icons.construction, size: 16),
@@ -367,7 +390,11 @@ class ImprovedBoardCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'You can build up to ${readiness.buildableQty} board(s).',
+                        'Inventory is currently ready for up to ${readiness.buildableQty} complete board(s).',
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'You can still continue and choose substitutes or skip unavailable BOM lines.',
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -387,10 +414,7 @@ class ImprovedBoardCard extends StatelessWidget {
                             ),
                           ),
                           IconButton(
-                            onPressed:
-                                qty < readiness.buildableQty
-                                    ? () => setState(() => qty++)
-                                    : null,
+                            onPressed: () => setState(() => qty++),
                             icon: const Icon(Icons.add),
                           ),
                         ],

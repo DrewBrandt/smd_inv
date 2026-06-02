@@ -65,14 +65,20 @@ class _TestSource extends BaseDataGridSource {
   Map<String, dynamic> getRowData(int rowIndex) => rowsData[rowIndex];
 
   @override
-  Future<void> onCommitValue(int rowIndex, String path, dynamic parsedValue) async {
+  Future<void> onCommitValue(
+    int rowIndex,
+    String path,
+    dynamic parsedValue,
+  ) async {
     setNestedMapValue(rowsData[rowIndex], path, parsedValue);
     commits.add({'rowIndex': rowIndex, 'path': path, 'value': parsedValue});
   }
 }
 
 Future<void> _pumpCell(WidgetTester tester, Widget cell) async {
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: Center(child: cell))));
+  await tester.pumpWidget(
+    MaterialApp(home: Scaffold(body: Center(child: cell))),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -92,52 +98,53 @@ void main() {
     UrlLauncherPlatform.instance = originalUrlLauncher;
   });
 
-  testWidgets('buildRow handles unknown fields and launches normalized URL cells', (
-    tester,
-  ) async {
-    final source = _TestSource(
-      rowsData: [
-        {'placeholder': 'x'},
-      ],
-      columns: [ColumnSpec(field: 'placeholder')],
-      colorScheme: colorScheme,
-    );
-
-    final unknownAdapter = source.buildRow(
-      DataGridRow(
-        cells: const [
-          DataGridCell<String>(columnName: 'mystery', value: 'raw'),
+  testWidgets(
+    'buildRow handles unknown fields and launches normalized URL cells',
+    (tester) async {
+      final source = _TestSource(
+        rowsData: [
+          {'placeholder': 'x'},
         ],
-      ),
-    );
-    await _pumpCell(tester, unknownAdapter.cells.single);
-    expect(find.text('raw'), findsOneWidget);
+        columns: [ColumnSpec(field: 'placeholder')],
+        colorScheme: colorScheme,
+      );
 
-    final urlAdapter = source.buildRow(
-      DataGridRow(
-        cells: const [
-          DataGridCell<String>(columnName: 'datasheet', value: 'example.com'),
-        ],
-      ),
-    );
-    await _pumpCell(tester, urlAdapter.cells.single);
-    await tester.tap(find.text('example.com'));
-    await tester.pumpAndSettle();
-    expect(fakeUrlLauncher.launchedUrls, contains('https://example.com'));
+      final unknownAdapter = source.buildRow(
+        DataGridRow(
+          cells: const [
+            DataGridCell<String>(columnName: 'mystery', value: 'raw'),
+          ],
+        ),
+      );
+      await _pumpCell(tester, unknownAdapter.cells.single);
+      expect(find.text('raw'), findsOneWidget);
 
-    final beforeInvalidTap = fakeUrlLauncher.launchedUrls.length;
-    final invalidAdapter = source.buildRow(
-      DataGridRow(
-        cells: const [
-          DataGridCell<String>(columnName: 'url', value: 'http://['),
-        ],
-      ),
-    );
-    await _pumpCell(tester, invalidAdapter.cells.single);
-    await tester.tap(find.text('http://['));
-    await tester.pumpAndSettle();
-    expect(fakeUrlLauncher.launchedUrls.length, beforeInvalidTap);
-  });
+      final urlAdapter = source.buildRow(
+        DataGridRow(
+          cells: const [
+            DataGridCell<String>(columnName: 'datasheet', value: 'example.com'),
+          ],
+        ),
+      );
+      await _pumpCell(tester, urlAdapter.cells.single);
+      await tester.tap(find.text('example.com'));
+      await tester.pumpAndSettle();
+      expect(fakeUrlLauncher.launchedUrls, contains('https://example.com'));
+
+      final beforeInvalidTap = fakeUrlLauncher.launchedUrls.length;
+      final invalidAdapter = source.buildRow(
+        DataGridRow(
+          cells: const [
+            DataGridCell<String>(columnName: 'url', value: 'http://['),
+          ],
+        ),
+      );
+      await _pumpCell(tester, invalidAdapter.cells.single);
+      await tester.tap(find.text('http://['));
+      await tester.pumpAndSettle();
+      expect(fakeUrlLauncher.launchedUrls.length, beforeInvalidTap);
+    },
+  );
 
   test('canSubmitCell covers fallback, url, and checkbox kinds', () async {
     final source = _TestSource(
@@ -183,134 +190,195 @@ void main() {
     );
   });
 
-  testWidgets('onCellSubmit and edit widgets handle decimal, text, and fallback paths', (
-    tester,
-  ) async {
+  testWidgets(
+    'onCellSubmit and edit widgets handle decimal, text, and fallback paths',
+    (tester) async {
+      final source = _TestSource(
+        rowsData: [
+          {'price': 0.0, 'name': 'old', 'link': 'https://old.example'},
+        ],
+        columns: [
+          ColumnSpec(field: 'price', kind: CellKind.decimal),
+          ColumnSpec(field: 'name', kind: CellKind.text),
+          ColumnSpec(field: 'link', kind: CellKind.url),
+        ],
+        colorScheme: colorScheme,
+      );
+
+      final row = source.rows.first;
+      source.newCellValue = '1.25';
+      await source.onCellSubmit(
+        row,
+        RowColumnIndex(0, 0),
+        GridColumn(columnName: 'price', label: const SizedBox()),
+      );
+      expect(source.commits.last['value'], 1.25);
+
+      source.newCellValue = 'updated';
+      await source.onCellSubmit(
+        source.rows.first,
+        RowColumnIndex(0, 0),
+        GridColumn(columnName: 'name', label: const SizedBox()),
+      );
+      expect(source.commits.last['value'], 'updated');
+
+      source.newCellValue = 'https://new.example';
+      await source.onCellSubmit(
+        source.rows.first,
+        RowColumnIndex(0, 0),
+        GridColumn(columnName: 'link', label: const SizedBox()),
+      );
+      expect(source.commits.last['value'], 'https://new.example');
+
+      final unknownEditor = source.buildEditWidget(
+        DataGridRow(
+          cells: const [
+            DataGridCell<String>(columnName: 'missing_fallback', value: 'abc'),
+          ],
+        ),
+        RowColumnIndex(0, 0),
+        GridColumn(columnName: 'missing_fallback', label: const SizedBox()),
+        () {},
+      );
+      expect(unknownEditor, isA<Container>());
+
+      var submitCount = 0;
+      final decimalEditor = source.buildEditWidget(
+        source.rows.first,
+        RowColumnIndex(0, 0),
+        GridColumn(columnName: 'price', label: const SizedBox()),
+        () => submitCount++,
+      );
+      expect(decimalEditor, isA<Container>());
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(width: 320, height: 80, child: decimalEditor),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final fieldFinder = find.byType(TextField);
+      await tester.enterText(fieldFinder, '1..2');
+      await tester.pump();
+      expect(source.editingController.text, isNot(contains('..')));
+
+      await tester.enterText(fieldFinder, '1.2');
+      await tester.pump();
+      expect(source.newCellValue, '1.2');
+
+      await tester.tap(fieldFinder);
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(submitCount, greaterThan(0));
+    },
+  );
+
+  testWidgets(
+    'dropdown editor handles provider errors with empty-state fallback',
+    (tester) async {
+      final sourceWithError = _TestSource(
+        rowsData: [
+          {
+            'required_attributes': {
+              'part_type': 'resistor',
+              'value': '10k',
+              'size': '0603',
+            },
+            'required_attributes.selected_component_ref': '',
+          },
+        ],
+        columns: [
+          ColumnSpec(
+            field: 'required_attributes.selected_component_ref',
+            kind: CellKind.dropdown,
+            dropdownOptionsProvider: (_) async {
+              throw StateError('provider failed');
+            },
+          ),
+        ],
+        colorScheme: colorScheme,
+      );
+      final errorEditor = sourceWithError.buildEditWidget(
+        sourceWithError.rows.first,
+        RowColumnIndex(0, 0),
+        GridColumn(
+          columnName: 'required_attributes.selected_component_ref',
+          label: const SizedBox(),
+        ),
+        () {},
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SizedBox(width: 420, child: errorEditor)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('No inventory matches found'), findsOneWidget);
+    },
+  );
+
+  test('dropdown submit converts blank values to null', () async {
     final source = _TestSource(
       rowsData: [
         {
-          'price': 0.0,
-          'name': 'old',
-          'link': 'https://old.example',
-        },
-      ],
-      columns: [
-        ColumnSpec(field: 'price', kind: CellKind.decimal),
-        ColumnSpec(field: 'name', kind: CellKind.text),
-        ColumnSpec(field: 'link', kind: CellKind.url),
-      ],
-      colorScheme: colorScheme,
-    );
-
-    final row = source.rows.first;
-    source.newCellValue = '1.25';
-    await source.onCellSubmit(
-      row,
-      RowColumnIndex(0, 0),
-      GridColumn(columnName: 'price', label: const SizedBox()),
-    );
-    expect(source.commits.last['value'], 1.25);
-
-    source.newCellValue = 'updated';
-    await source.onCellSubmit(
-      source.rows.first,
-      RowColumnIndex(0, 0),
-      GridColumn(columnName: 'name', label: const SizedBox()),
-    );
-    expect(source.commits.last['value'], 'updated');
-
-    source.newCellValue = 'https://new.example';
-    await source.onCellSubmit(
-      source.rows.first,
-      RowColumnIndex(0, 0),
-      GridColumn(columnName: 'link', label: const SizedBox()),
-    );
-    expect(source.commits.last['value'], 'https://new.example');
-
-    final unknownEditor = source.buildEditWidget(
-      DataGridRow(
-        cells: const [
-          DataGridCell<String>(columnName: 'missing_fallback', value: 'abc'),
-        ],
-      ),
-      RowColumnIndex(0, 0),
-      GridColumn(columnName: 'missing_fallback', label: const SizedBox()),
-      () {},
-    );
-    expect(unknownEditor, isA<Container>());
-
-    var submitCount = 0;
-    final decimalEditor = source.buildEditWidget(
-      source.rows.first,
-      RowColumnIndex(0, 0),
-      GridColumn(columnName: 'price', label: const SizedBox()),
-      () => submitCount++,
-    );
-    expect(decimalEditor, isA<Container>());
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SizedBox(width: 320, height: 80, child: decimalEditor),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final fieldFinder = find.byType(TextField);
-    await tester.enterText(fieldFinder, '1..2');
-    await tester.pump();
-    expect(source.editingController.text, isNot(contains('..')));
-
-    await tester.enterText(fieldFinder, '1.2');
-    await tester.pump();
-    expect(source.newCellValue, '1.2');
-
-    await tester.tap(fieldFinder);
-    await tester.pump();
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    expect(submitCount, greaterThan(0));
-  });
-
-  testWidgets('dropdown editor handles provider errors with empty-state fallback', (
-    tester,
-  ) async {
-    final sourceWithError = _TestSource(
-      rowsData: [
-        {
-          'required_attributes': {
-            'part_type': 'resistor',
-            'value': '10k',
-            'size': '0603',
+          'required_attributes': <String, dynamic>{
+            'selected_component_ref': 'inv-123',
           },
-          'required_attributes.selected_component_ref': '',
         },
       ],
       columns: [
         ColumnSpec(
           field: 'required_attributes.selected_component_ref',
           kind: CellKind.dropdown,
-          dropdownOptionsProvider: (_) async {
-            throw StateError('provider failed');
-          },
+          dropdownOptionsProvider: (_) async => [],
         ),
       ],
       colorScheme: colorScheme,
     );
-    final errorEditor = sourceWithError.buildEditWidget(
-      sourceWithError.rows.first,
+
+    source.newCellValue = '   ';
+    await source.onCellSubmit(
+      source.rows.first,
       RowColumnIndex(0, 0),
       GridColumn(
         columnName: 'required_attributes.selected_component_ref',
         label: const SizedBox(),
       ),
-      () {},
     );
-    await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: SizedBox(width: 420, child: errorEditor))),
+
+    expect(source.commits.last['value'], isNull);
+    expect(
+      getNestedMapValue(
+        source.rowsData.first,
+        'required_attributes.selected_component_ref',
+      ),
+      isNull,
     );
+  });
+
+  testWidgets('ignored checkbox column uses lock icon toggle', (tester) async {
+    final source = _TestSource(
+      rowsData: [
+        {'_ignored': false},
+      ],
+      columns: [
+        ColumnSpec(field: '_ignored', kind: CellKind.checkbox, label: 'Lock'),
+      ],
+      colorScheme: colorScheme,
+    );
+
+    final adapter = source.buildRow(source.rows.first);
+    await _pumpCell(tester, adapter.cells.single);
+    expect(find.byIcon(Icons.lock_open), findsOneWidget);
+    expect(find.byType(Checkbox), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.lock_open));
     await tester.pumpAndSettle();
-    expect(find.text('No inventory matches found'), findsOneWidget);
+
+    expect(source.commits.last['value'], true);
   });
 }

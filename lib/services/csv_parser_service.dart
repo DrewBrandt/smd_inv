@@ -141,28 +141,30 @@ class CsvParserService {
     final columnMap = <String, int>{};
 
     for (final expected in expectedColumns) {
-      final exp = expected.toLowerCase();
-
-      // Find best matching header (headers are already lowercase)
-      for (int i = 0; i < headers.length; i++) {
-        final header = headers[i];
-
-        // Exact match
-        if (header == exp) {
-          columnMap[expected] = i;
-          break;
-        }
-
-        // Contains match (either direction)
-        // Note: Both header and exp are already lowercase
-        if (header.contains(exp) || exp.contains(header)) {
-          columnMap[expected] = i;
-          break;
-        }
+      final index = _findHeaderIndex(headers, expected);
+      if (index != null) {
+        columnMap[expected] = index;
       }
     }
 
     return columnMap;
+  }
+
+  static int? _findHeaderIndex(List<String> headers, String columnName) {
+    final target = columnName.toLowerCase().trim();
+
+    for (int i = 0; i < headers.length; i++) {
+      if (headers[i] == target) return i;
+    }
+
+    for (int i = 0; i < headers.length; i++) {
+      final header = headers[i];
+      if (header.contains(target) || target.contains(header)) {
+        return i;
+      }
+    }
+
+    return null;
   }
 }
 
@@ -211,11 +213,7 @@ class CsvParseResult {
   }) {
     var index = columnMap[columnName];
     if (index == null) {
-      final target = columnName.toLowerCase().trim();
-      index = headers.indexWhere(
-        (h) => h == target || h.contains(target) || target.contains(h),
-      );
-      if (index < 0) index = null;
+      index = CsvParserService._findHeaderIndex(headers, columnName);
     }
     if (index == null || index >= row.length) return defaultValue;
     return row[index]?.toString().trim() ?? defaultValue;

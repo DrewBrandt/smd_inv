@@ -175,5 +175,63 @@ void main() {
       expect(readiness.shortfalls, hasLength(1));
       expect(readiness.shortfalls.single.qty, 2);
     });
+
+    test(
+      'calculateAll reuses one inventory snapshot for multiple boards',
+      () async {
+        final ref = await db.collection(FirestoreCollections.inventory).add({
+          FirestoreFields.type: 'resistor',
+          FirestoreFields.value: '10k',
+          FirestoreFields.package: '0603',
+          FirestoreFields.qty: 20,
+        });
+
+        final boards = [
+          BoardDoc(
+            id: 'b6',
+            name: 'One',
+            bom: [
+              BomLine(
+                designators: 'R1',
+                qty: 2,
+                requiredAttributes: {
+                  'part_type': 'resistor',
+                  FirestoreFields.value: '10k',
+                  'size': '0603',
+                  FirestoreFields.selectedComponentRef: ref.id,
+                },
+              ),
+            ],
+          ),
+          BoardDoc(
+            id: 'b7',
+            name: 'Two',
+            bom: [
+              BomLine(
+                designators: 'R2',
+                qty: 5,
+                requiredAttributes: {
+                  'part_type': 'resistor',
+                  FirestoreFields.value: '10k',
+                  'size': '0603',
+                  FirestoreFields.selectedComponentRef: ref.id,
+                },
+              ),
+            ],
+          ),
+        ];
+
+        final inventory =
+            await db.collection(FirestoreCollections.inventory).get();
+        final readinessByBoard = await ReadinessCalculator.calculateAll(
+          boards,
+          inventorySnapshot: inventory,
+        );
+
+        expect(readinessByBoard.keys, containsAll(['b6', 'b7']));
+        expect(readinessByBoard['b6']!.buildableQty, 10);
+        expect(readinessByBoard['b7']!.buildableQty, 4);
+      },
+    );
   });
 }

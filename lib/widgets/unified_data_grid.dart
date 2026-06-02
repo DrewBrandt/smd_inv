@@ -1,5 +1,8 @@
 // lib/widgets/unified_data_grid.dart
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
@@ -10,6 +13,7 @@ import '../data/list_map_source.dart';
 import '../data/inventory_repo.dart';
 import '../models/columns.dart';
 import '../services/datagrid_column_manager.dart';
+import '../services/inventory_history_service.dart';
 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
@@ -51,6 +55,9 @@ class UnifiedDataGrid extends StatefulWidget {
   final List<String>? packageFilter;
   final List<String>? locationFilter;
 
+  /// Optional history service for recording edits and deletes (inventory mode only)
+  final InventoryHistoryService? historyService;
+
   // ── UI Options ──
 
   /// Key for persisting column widths (defaults to collection name or 'local')
@@ -77,6 +84,7 @@ class UnifiedDataGrid extends StatefulWidget {
     this.typeFilter,
     this.packageFilter,
     this.locationFilter,
+    this.historyService,
     this.persistKey,
     this.enableRowMenu = true,
     this.allowEditing = true,
@@ -119,6 +127,7 @@ class UnifiedDataGrid extends StatefulWidget {
     List<String>? typeFilter,
     List<String>? packageFilter,
     List<String>? locationFilter,
+    InventoryHistoryService? historyService,
     String? persistKey,
     bool enableRowMenu = true,
     bool allowEditing = true,
@@ -132,6 +141,7 @@ class UnifiedDataGrid extends StatefulWidget {
       typeFilter: typeFilter,
       packageFilter: packageFilter,
       locationFilter: locationFilter,
+      historyService: historyService,
       persistKey: persistKey ?? 'inventory_unified',
       enableRowMenu: enableRowMenu,
       allowEditing: allowEditing,
@@ -177,13 +187,117 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
   bool _prefsLoaded = false;
   InventoryRepo? _inventoryRepo;
 
+  // ── Firestore-backed state (inventory & collection modes) ──
+  // The stream is subscribed once and only re-subscribed when the *server-side*
+  // filters change — never on a search keystroke. The data source is reused
+  // across rebuilds instead of being recreated each time.
+  StreamSubscription<List<Doc>>? _docsSub;
+  List<Doc> _allDocs = const [];
+  FirestoreDataSource? _firestoreSource;
+  Object? _streamError;
+  bool _firstSnapshotReceived = false;
+
+  /// Cache of the lowercased searchable text per document id, so that typing
+  /// in the search box doesn't re-stringify every document on every keystroke.
+  /// Cleared whenever a fresh snapshot arrives.
+  final Map<String, String> _searchTextCache = {};
+
+  bool get _isFirestoreMode => widget.rows == null;
+
   @override
   void initState() {
     super.initState();
-    if (widget.rows == null) {
+    if (_isFirestoreMode) {
       _inventoryRepo = widget.inventoryRepo ?? InventoryRepo();
+      _subscribeDocs();
     }
     _initColumnManager();
+  }
+
+  @override
+  void didUpdateWidget(covariant UnifiedDataGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isFirestoreMode) return;
+
+    // Re-subscribe only when something that affects the *query* changes.
+    final modeOrFiltersChanged =
+        oldWidget.useInventoryStream != widget.useInventoryStream ||
+        oldWidget.collection != widget.collection ||
+        !listEquals(oldWidget.typeFilter, widget.typeFilter) ||
+        !listEquals(oldWidget.packageFilter, widget.packageFilter) ||
+        !listEquals(oldWidget.locationFilter, widget.locationFilter);
+
+    if (modeOrFiltersChanged) {
+      _subscribeDocs();
+    } else if (oldWidget.searchQuery != widget.searchQuery) {
+      // Search is client-side only: re-filter the cached docs after this
+      // build completes (so we don't call notifyListeners during build).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _applyFilter();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _docsSub?.cancel();
+    super.dispose();
+  }
+
+  /// (Re)subscribes to the appropriate Firestore stream. Called once on init
+  /// and again only when the mode or a server-side filter changes.
+  void _subscribeDocs() {
+    _docsSub?.cancel();
+    _firstSnapshotReceived = false;
+    _streamError = null;
+
+    final Stream<List<Doc>> stream =
+        widget.useInventoryStream
+            ? _inventoryRepo!.streamFiltered(
+              typeFilter: widget.typeFilter,
+              packageFilter: widget.packageFilter,
+              locationFilter: widget.locationFilter,
+            )
+            : _inventoryRepo!.streamCollection(widget.collection!);
+
+    _docsSub = stream.listen(
+      (docs) {
+        _allDocs = docs;
+        _searchTextCache.clear();
+        _applyFilter();
+        if (mounted) setState(() => _firstSnapshotReceived = true);
+      },
+      onError: (Object e) {
+        if (mounted) {
+          setState(() {
+            _streamError = e;
+            _firstSnapshotReceived = true;
+          });
+        }
+      },
+    );
+  }
+
+  /// Applies the client-side search filter to the cached docs and updates the
+  /// existing data source in place (creating it on first use).
+  void _applyFilter() {
+    final docs =
+        widget.useInventoryStream
+            ? _filterInventoryDocs(_allDocs)
+            : _filterSimpleDocs(_allDocs);
+
+    final source = _firestoreSource;
+    if (source == null) {
+      _firestoreSource = FirestoreDataSource(
+        docs: docs,
+        columns: widget.columns,
+        colorScheme: Theme.of(context).colorScheme,
+        historyService:
+            widget.useInventoryStream ? widget.historyService : null,
+      );
+    } else {
+      source.updateDocs(docs);
+    }
   }
 
   Future<void> _initColumnManager() async {
@@ -220,10 +334,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
     if (terms.isEmpty) return docs;
 
     return docs.where((d) {
-      final m = d.data();
-      final searchableText = m.values
-          .map((v) => v?.toString().toLowerCase() ?? '')
-          .join(' ');
+      final searchableText = _searchableTextFor(d);
       // ALL terms must be present (AND logic)
       return terms.every((term) => searchableText.contains(term));
     }).toList();
@@ -234,10 +345,20 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
     final query = widget.searchQuery.trim().toLowerCase();
     if (query.isEmpty) return docs;
 
-    return docs.where((d) {
-      final m = d.data();
-      return m.values.any((v) => v.toString().toLowerCase().contains(query));
-    }).toList();
+    return docs.where((d) => _searchableTextFor(d).contains(query)).toList();
+  }
+
+  /// Lowercased, space-joined string of all field values for a document,
+  /// memoized per document id (cache is cleared on each new snapshot).
+  String _searchableTextFor(Doc d) {
+    return _searchTextCache.putIfAbsent(
+      d.id,
+      () => d
+          .data()
+          .values
+          .map((v) => v?.toString().toLowerCase() ?? '')
+          .join(' '),
+    );
   }
 
   // ── Column Resize Handlers ──
@@ -443,55 +564,18 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
       return _buildGrid(source);
     }
 
-    // ── Mode 2: Inventory stream with advanced filtering ──
-    if (widget.useInventoryStream) {
-      return StreamBuilder<List<Doc>>(
-        stream: _inventoryRepo!.streamFiltered(
-          // _inventoryRepo is initialized for non-local modes in initState.
-          typeFilter: widget.typeFilter,
-          packageFilter: widget.packageFilter,
-          locationFilter: widget.locationFilter,
-        ),
-        builder: (context, snap) {
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
-          if (snap.connectionState == ConnectionState.waiting ||
-              !snap.hasData ||
-              !_prefsLoaded) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final docs = _filterInventoryDocs(snap.data!);
-          final source = FirestoreDataSource(
-            docs: docs,
-            columns: widget.columns,
-            colorScheme: Theme.of(context).colorScheme,
-          );
-
-          return _buildGrid(source, firestoreSource: source);
-        },
-      );
+    // ── Modes 2 & 3: Firestore-backed (inventory stream or generic collection) ──
+    // Data is streamed via a manually-managed subscription (see _subscribeDocs)
+    // and rendered from a single reused FirestoreDataSource.
+    if (_streamError != null) {
+      return Center(child: Text('Error: $_streamError'));
+    }
+    if (!_prefsLoaded ||
+        !_firstSnapshotReceived ||
+        _firestoreSource == null) {
+      return const Center(child: CircularProgressIndicator());
     }
 
-    // ── Mode 3: Generic Firestore collection ──
-    return StreamBuilder<List<Doc>>(
-      stream: _inventoryRepo!.streamCollection(widget.collection!),
-      builder: (context, snap) {
-        if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
-        if (snap.connectionState == ConnectionState.waiting ||
-            !snap.hasData ||
-            !_prefsLoaded) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final docs = _filterSimpleDocs(snap.data!);
-        final source = FirestoreDataSource(
-          docs: docs,
-          columns: widget.columns,
-          colorScheme: Theme.of(context).colorScheme,
-        );
-
-        return _buildGrid(source, firestoreSource: source);
-      },
-    );
+    return _buildGrid(_firestoreSource!, firestoreSource: _firestoreSource!);
   }
 }

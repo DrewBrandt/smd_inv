@@ -10,12 +10,15 @@ import '../constants/firestore_constants.dart';
 import '../services/auth_service.dart';
 import '../services/board_build_service.dart';
 import '../services/inventory_audit_service.dart';
+import '../services/inventory_history_service.dart';
 
 class AdminPage extends StatelessWidget {
   final FirebaseFirestore? firestore;
   final BoardBuildService? buildService;
   final InventoryAuditService? auditService;
+  final InventoryHistoryService? historyService;
   final Future<void> Function(String path, String contents)? writeFile;
+  final Future<String> Function(String path)? readFile;
   final bool isWeb;
 
   const AdminPage({
@@ -23,7 +26,9 @@ class AdminPage extends StatelessWidget {
     this.firestore,
     this.buildService,
     this.auditService,
+    this.historyService,
     this.writeFile,
+    this.readFile,
     this.isWeb = kIsWeb,
   });
 
@@ -34,7 +39,9 @@ class AdminPage extends StatelessWidget {
       firestore: db,
       buildService: buildService ?? BoardBuildService(firestore: db),
       auditService: auditService ?? InventoryAuditService(firestore: db),
+      historyService: historyService ?? InventoryHistoryService(firestore: db),
       writeFile: writeFile ?? _defaultWriteFile,
+      readFile: readFile ?? _defaultReadFile,
       isWeb: isWeb,
     );
   }
@@ -43,20 +50,29 @@ class AdminPage extends StatelessWidget {
     final file = File(path);
     await file.writeAsString(contents);
   }
+
+  static Future<String> _defaultReadFile(String path) async {
+    final file = File(path);
+    return file.readAsString();
+  }
 }
 
 class _HistoryPanel extends StatefulWidget {
   final FirebaseFirestore firestore;
   final BoardBuildService buildService;
   final InventoryAuditService auditService;
+  final InventoryHistoryService historyService;
   final Future<void> Function(String path, String contents) writeFile;
+  final Future<String> Function(String path) readFile;
   final bool isWeb;
 
   const _HistoryPanel({
     required this.firestore,
     required this.buildService,
     required this.auditService,
+    required this.historyService,
     required this.writeFile,
+    required this.readFile,
     required this.isWeb,
   });
 
@@ -162,63 +178,47 @@ class _HistoryPanelState extends State<_HistoryPanel> {
                         final data = doc.data();
                         final action =
                             data[FirestoreFields.action]?.toString() ?? '';
-                        final board =
-                            data[FirestoreFields.boardName]?.toString() ??
-                            '(unknown board)';
-                        final qty =
-                            (data[FirestoreFields.quantity] as num?)?.toInt() ??
-                            0;
                         final ts =
                             data[FirestoreFields.timestamp] as Timestamp?;
                         final undone = data[FirestoreFields.undoneAt] != null;
-                        final canUndo = action == 'make_board' && !undone;
+                        final undoable = !undone &&
+                            (action == HistoryActions.makeBoard ||
+                                action == HistoryActions.editItem ||
+                                action == HistoryActions.deleteItem ||
+                                action == HistoryActions.addItem ||
+                                action == HistoryActions.importCsv);
 
-                        final consumed =
-                            (data[FirestoreFields.consumedItems] as List?) ??
-                            const [];
-                        final consumedCount = consumed.length;
-                        final consumedTotal = consumed.fold<int>(0, (
-                          total,
-                          entry,
-                        ) {
-                          final map = Map<String, dynamic>.from(entry as Map);
-                          return total +
-                              ((map[FirestoreFields.quantity] as num?)
-                                      ?.toInt() ??
-                                  0);
-                        });
+                        final title = _buildHistoryTitle(action, data);
+                        final subtitle =
+                            _buildHistorySubtitle(action, data, ts, undone);
+                        final icon = _historyIcon(action, undone);
 
                         return Card(
                           child: ListTile(
                             leading: Icon(
-                              undone ? Icons.restore : Icons.history,
+                              icon,
                               color: undone ? cs.tertiary : cs.primary,
                             ),
-                            title: Text('$action - $board'),
-                            subtitle: Text(
-                              'Qty: $qty | ${_formatTimestamp(ts)} | Items: $consumedCount | Parts consumed: $consumedTotal${undone ? ' | UNDONE' : ''}',
-                            ),
-                            trailing:
-                                canUndo
-                                    ? FilledButton.icon(
-                                      onPressed:
-                                          canEdit && !_undoing.contains(doc.id)
-                                              ? () => _undoHistory(doc.id)
-                                              : null,
-                                      icon:
-                                          _undoing.contains(doc.id)
-                                              ? const SizedBox(
-                                                width: 14,
-                                                height: 14,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                              )
-                                              : const Icon(Icons.undo),
-                                      label: const Text('Undo'),
-                                    )
-                                    : null,
+                            title: Text(title),
+                            subtitle: Text(subtitle),
+                            trailing: undoable
+                                ? FilledButton.icon(
+                                    onPressed: canEdit &&
+                                            !_undoing.contains(doc.id)
+                                        ? () => _undoHistory(doc.id, action)
+                                        : null,
+                                    icon: _undoing.contains(doc.id)
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.undo),
+                                    label: const Text('Undo'),
+                                  )
+                                : null,
                           ),
                         );
                       },
@@ -233,17 +233,26 @@ class _HistoryPanelState extends State<_HistoryPanel> {
     );
   }
 
-  Future<void> _undoHistory(String historyId) async {
+  Future<void> _undoHistory(String historyId, String action) async {
     if (!_ensureCanEdit()) return;
 
     setState(() => _undoing.add(historyId));
     try {
-      await widget.buildService.undoMakeHistory(historyId);
+      if (action == HistoryActions.makeBoard) {
+        await widget.buildService.undoMakeHistory(historyId);
+      } else {
+        await widget.historyService.undo(historyId);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Undo complete. Inventory restored.')),
+        const SnackBar(content: Text('Undo complete.')),
       );
     } on BoardBuildException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } on InventoryHistoryException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -258,6 +267,71 @@ class _HistoryPanelState extends State<_HistoryPanel> {
         setState(() => _undoing.remove(historyId));
       }
     }
+  }
+
+  IconData _historyIcon(String action, bool undone) {
+    if (undone) return Icons.restore;
+    return switch (action) {
+      HistoryActions.makeBoard => Icons.precision_manufacturing,
+      HistoryActions.editItem => Icons.edit,
+      HistoryActions.deleteItem => Icons.delete_outline,
+      HistoryActions.addItem => Icons.add_circle_outline,
+      HistoryActions.importCsv => Icons.upload_file,
+      _ => Icons.history,
+    };
+  }
+
+  String _buildHistoryTitle(String action, Map<String, dynamic> data) {
+    final snapshot = data[FirestoreFields.itemSnapshot] as Map? ?? {};
+    final partNum =
+        snapshot[FirestoreFields.partNumber]?.toString() ??
+        data[FirestoreFields.docId]?.toString() ??
+        '(unknown)';
+
+    return switch (action) {
+      HistoryActions.makeBoard =>
+        'Built ${data[FirestoreFields.boardName] ?? '(unknown board)'}'
+        ' ×${(data[FirestoreFields.quantity] as num?)?.toInt() ?? 0}',
+      HistoryActions.editItem =>
+        'Edited $partNum — '
+        '${data[FirestoreFields.editedField] ?? 'field'}: '
+        '${data[FirestoreFields.oldValue]} → ${data[FirestoreFields.newValue]}',
+      HistoryActions.deleteItem => 'Deleted $partNum',
+      HistoryActions.addItem => 'Added $partNum',
+      HistoryActions.importCsv =>
+        'CSV Import — '
+        '${(data[FirestoreFields.itemCount] as num?)?.toInt() ?? 0} items',
+      _ => action,
+    };
+  }
+
+  String _buildHistorySubtitle(
+    String action,
+    Map<String, dynamic> data,
+    Timestamp? ts,
+    bool undone,
+  ) {
+    final time = _formatTimestamp(ts);
+    final undoneStr = undone ? ' | UNDONE' : '';
+
+    if (action == HistoryActions.makeBoard) {
+      final consumed = (data[FirestoreFields.consumedItems] as List?) ?? [];
+      final total = consumed.fold<int>(0, (s, e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        return s + ((m[FirestoreFields.quantity] as num?)?.toInt() ?? 0);
+      });
+      return '$time | ${consumed.length} items | $total parts consumed$undoneStr';
+    }
+
+    if (action == HistoryActions.importCsv) {
+      final added =
+          (data[FirestoreFields.addedItems] as List?)?.length ?? 0;
+      final updated =
+          (data[FirestoreFields.updatedItems] as List?)?.length ?? 0;
+      return '$time | $added new, $updated updated$undoneStr';
+    }
+
+    return '$time$undoneStr';
   }
 
   Widget _buildAuditCard(bool canEdit) {
@@ -402,7 +476,7 @@ class _HistoryPanelState extends State<_HistoryPanel> {
       if (file.bytes != null) {
         csvText = String.fromCharCodes(file.bytes!);
       } else if (file.path != null) {
-        csvText = await File(file.path!).readAsString();
+        csvText = await widget.readFile(file.path!);
       } else {
         throw const AuditReplaceException('Selected file could not be read.');
       }

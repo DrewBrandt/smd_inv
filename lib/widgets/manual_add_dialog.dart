@@ -2,9 +2,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/inventory_history_service.dart';
 
 class ManualAddDialog extends StatefulWidget {
-  const ManualAddDialog({super.key});
+  final InventoryHistoryService? historyService;
+
+  const ManualAddDialog({super.key, this.historyService});
 
   @override
   State<ManualAddDialog> createState() => _ManualAddDialogState();
@@ -78,7 +81,13 @@ class _ManualAddDialogState extends State<ManualAddDialog> {
         'last_updated': FieldValue.serverTimestamp(),
       };
 
-      await FirebaseFirestore.instance.collection('inventory').add(data);
+      final docRef = await FirebaseFirestore.instance
+          .collection('inventory')
+          .add(data);
+
+      widget.historyService
+          ?.recordAdd(docId: docRef.id, itemSnapshot: data)
+          .catchError((_) {});
 
       if (mounted) {
         Navigator.pop(context, true); // Return true to indicate success

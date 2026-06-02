@@ -2,11 +2,97 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/firestore_constants.dart';
 import 'part_normalizer.dart';
 
+typedef InventoryDoc = QueryDocumentSnapshot<Map<String, dynamic>>;
+
 /// Service for matching BOM lines to inventory items
 ///
 /// Provides consistent matching logic across readiness calculation,
 /// BOM import, and board production workflows.
 class InventoryMatcher {
+  static List<InventoryDoc> findMatchesSync({
+    required Map<String, dynamic> bomAttributes,
+    required InventoryMatcherIndex matcherIndex,
+  }) {
+    // Strategy 1: Match by selected_component_ref
+    final selectedRef = _readString(
+      bomAttributes,
+      FirestoreFields.selectedComponentRef,
+    );
+    if (selectedRef != null && selectedRef.isNotEmpty) {
+      final match = matcherIndex.docById(selectedRef);
+      if (match != null) return [match];
+    }
+
+    // Strategy 2: Exact part number (preferred deterministic identity)
+    final partNumber = _readString(bomAttributes, FirestoreFields.partNumber);
+    if (partNumber != null && partNumber.isNotEmpty) {
+      final matches = matcherIndex.docsByPartNumber(partNumber);
+      if (matches.isNotEmpty) return matches;
+    }
+
+    final partType = PartNormalizer.normalizePartType(
+      _readString(bomAttributes, 'part_type') ?? '',
+    );
+    final value = _readString(bomAttributes, FirestoreFields.value) ?? '';
+    final size = _readString(bomAttributes, 'size') ?? '';
+
+    // Strategy 3: For non-passives, many KiCad BOMs put MPN in `value`.
+    if (value.isNotEmpty && !PartNormalizer.isPassive(partType)) {
+      final matches = matcherIndex.docsByPartNumber(value);
+      if (matches.isNotEmpty) return matches;
+    }
+
+    // Strategy 4: Match passives by type + value + package (strict).
+    if (PartNormalizer.isPassive(partType) && value.isNotEmpty) {
+      final wantedPackage = PartNormalizer.canonicalPackage(size);
+      final strictPool =
+          wantedPackage.isEmpty
+              ? matcherIndex.docsByPartType(partType)
+              : matcherIndex.docsByPartTypeAndPackage(partType, wantedPackage);
+
+      final strictMatches =
+          strictPool.where((doc) {
+            final data = doc.data();
+            final invValue = data[FirestoreFields.value]?.toString() ?? '';
+            return PartNormalizer.valuesLikelyEqual(
+              a: value,
+              b: invValue,
+              partType: partType,
+            );
+          }).toList();
+
+      if (strictMatches.isNotEmpty) return strictMatches;
+
+      // Fallback: if package data is incomplete, auto-resolve only if unique.
+      final relaxed =
+          matcherIndex.docsByPartType(partType).where((doc) {
+            final data = doc.data();
+            return PartNormalizer.valuesLikelyEqual(
+              a: value,
+              b: data[FirestoreFields.value]?.toString() ?? '',
+              partType: partType,
+            );
+          }).toList();
+      if (relaxed.length == 1) return relaxed;
+      if (relaxed.isNotEmpty && size.isEmpty) return relaxed;
+    }
+
+    // Strategy 5: weighted fallback for partial data.
+    final weighted = _weightedCandidates(
+      inventory:
+          partType.isEmpty
+              ? matcherIndex.docs
+              : matcherIndex.docsByPartType(partType),
+      bomPartType: partType,
+      bomValue: value,
+      bomSize: size,
+      bomPartNumber: partNumber ?? '',
+    );
+    if (weighted.isNotEmpty) return weighted;
+
+    return const [];
+  }
+
   /// Find matching inventory items for BOM line attributes
   ///
   /// Strategy priority:
@@ -20,6 +106,7 @@ class InventoryMatcher {
     required Map<String, dynamic> bomAttributes,
     QuerySnapshot<Map<String, dynamic>>? inventorySnapshot,
     FirebaseFirestore? firestore,
+    InventoryMatcherIndex? matcherIndex,
   }) async {
     final db = firestore;
 
@@ -27,121 +114,31 @@ class InventoryMatcher {
     final inventory =
         inventorySnapshot ??
         await _requireDb(db).collection(FirestoreCollections.inventory).get();
+    final index = matcherIndex ?? InventoryMatcherIndex.fromSnapshot(inventory);
 
-    // Strategy 1: Match by selected_component_ref
+    final matches = findMatchesSync(
+      bomAttributes: bomAttributes,
+      matcherIndex: index,
+    );
+    if (matches.isNotEmpty || db == null) {
+      return matches;
+    }
+
     final selectedRef = _readString(
       bomAttributes,
       FirestoreFields.selectedComponentRef,
     );
     if (selectedRef != null && selectedRef.isNotEmpty) {
-      try {
-        // First check if it's already in the inventory snapshot
-        final match =
-            inventory.docs.where((doc) => doc.id == selectedRef).toList();
-        if (match.isNotEmpty) {
-          return match;
-        }
-
-        // Fallback: try fetching from Firestore (for cases where snapshot not provided)
-        if (db != null) {
-          final doc =
-              await db
-                  .collection(FirestoreCollections.inventory)
-                  .doc(selectedRef)
-                  .get();
-          if (doc.exists) {
-            return [doc as QueryDocumentSnapshot<Map<String, dynamic>>];
-          }
-        }
-      } catch (_) {
-        // Invalid ref, continue to other strategies
+      final query =
+          await db
+              .collection(FirestoreCollections.inventory)
+              .where(FieldPath.documentId, isEqualTo: selectedRef)
+              .limit(1)
+              .get();
+      if (query.docs.isNotEmpty) {
+        return query.docs;
       }
     }
-
-    // Strategy 2: Exact part number (preferred deterministic identity)
-    final partNumber = _readString(bomAttributes, FirestoreFields.partNumber);
-    if (partNumber != null && partNumber.isNotEmpty) {
-      final matches =
-          inventory.docs.where((doc) {
-            final data = doc.data();
-            return _partNumberEq(data[FirestoreFields.partNumber], partNumber);
-          }).toList();
-
-      if (matches.isNotEmpty) return matches;
-    }
-
-    // Strategy 3: For non-passives, many KiCad BOMs put MPN in `value`.
-    final partType = PartNormalizer.normalizePartType(
-      _readString(bomAttributes, 'part_type') ?? '',
-    );
-    final value = _readString(bomAttributes, FirestoreFields.value) ?? '';
-    final size = _readString(bomAttributes, 'size') ?? '';
-
-    if (value.isNotEmpty && !PartNormalizer.isPassive(partType)) {
-      final matches =
-          inventory.docs.where((doc) {
-            final data = doc.data();
-            return _partNumberEq(data[FirestoreFields.partNumber], value);
-          }).toList();
-
-      if (matches.isNotEmpty) return matches;
-    }
-
-    // Strategy 4: Match passives by type + value + package (strict).
-    if (PartNormalizer.isPassive(partType) && value.isNotEmpty) {
-      final wantedPackage = PartNormalizer.canonicalPackage(size);
-      final strictMatches =
-          inventory.docs.where((doc) {
-            final data = doc.data();
-            final invType = PartNormalizer.normalizePartType(
-              data[FirestoreFields.type]?.toString() ?? '',
-            );
-            if (invType != partType) return false;
-
-            final invValue = data[FirestoreFields.value]?.toString() ?? '';
-            final valueEqual = PartNormalizer.valuesLikelyEqual(
-              a: value,
-              b: invValue,
-              partType: partType,
-            );
-            if (!valueEqual) return false;
-
-            if (wantedPackage.isEmpty) return true;
-            final invPackage = PartNormalizer.canonicalPackage(
-              data[FirestoreFields.package]?.toString() ?? '',
-            );
-            return invPackage == wantedPackage;
-          }).toList();
-
-      if (strictMatches.isNotEmpty) return strictMatches;
-
-      // Fallback: if package data is incomplete, auto-resolve only if unique.
-      final relaxed =
-          inventory.docs.where((doc) {
-            final data = doc.data();
-            final invType = PartNormalizer.normalizePartType(
-              data[FirestoreFields.type]?.toString() ?? '',
-            );
-            if (invType != partType) return false;
-            return PartNormalizer.valuesLikelyEqual(
-              a: value,
-              b: data[FirestoreFields.value]?.toString() ?? '',
-              partType: partType,
-            );
-          }).toList();
-      if (relaxed.length == 1) return relaxed;
-      if (relaxed.isNotEmpty && size.isEmpty) return relaxed;
-    }
-
-    // Strategy 5: weighted fallback for partial data.
-    final weighted = _weightedCandidates(
-      inventory: inventory.docs,
-      bomPartType: partType,
-      bomValue: value,
-      bomSize: size,
-      bomPartNumber: partNumber ?? '',
-    );
-    if (weighted.isNotEmpty) return weighted;
 
     return [];
   }
@@ -153,11 +150,13 @@ class InventoryMatcher {
     required Map<String, dynamic> bomAttributes,
     QuerySnapshot<Map<String, dynamic>>? inventorySnapshot,
     FirebaseFirestore? firestore,
+    InventoryMatcherIndex? matcherIndex,
   }) async {
     final matches = await findMatches(
       bomAttributes: bomAttributes,
       inventorySnapshot: inventorySnapshot,
       firestore: firestore,
+      matcherIndex: matcherIndex,
     );
 
     return matches.length == 1 ? matches.first : null;
@@ -168,11 +167,13 @@ class InventoryMatcher {
     required Map<String, dynamic> bomAttributes,
     QuerySnapshot<Map<String, dynamic>>? inventorySnapshot,
     FirebaseFirestore? firestore,
+    InventoryMatcherIndex? matcherIndex,
   }) async {
     final matches = await findMatches(
       bomAttributes: bomAttributes,
       inventorySnapshot: inventorySnapshot,
       firestore: firestore,
+      matcherIndex: matcherIndex,
     );
 
     if (matches.isEmpty) {
@@ -217,7 +218,7 @@ class InventoryMatcher {
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _weightedCandidates({
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> inventory,
+    required List<InventoryDoc> inventory,
     required String bomPartType,
     required String bomValue,
     required String bomSize,
@@ -283,6 +284,99 @@ class InventoryMatcher {
   static FirebaseFirestore _requireDb(FirebaseFirestore? db) {
     if (db != null) return db;
     return FirebaseFirestore.instance;
+  }
+}
+
+class InventoryMatcherIndex {
+  final QuerySnapshot<Map<String, dynamic>> inventorySnapshot;
+  final Map<String, InventoryDoc> _docsById;
+  final Map<String, List<InventoryDoc>> _docsByCanonicalPartNumber;
+  final Map<String, List<InventoryDoc>> _docsByPartType;
+  final Map<String, List<InventoryDoc>> _docsByPartTypeAndPackage;
+
+  InventoryMatcherIndex._({
+    required this.inventorySnapshot,
+    required Map<String, InventoryDoc> docsById,
+    required Map<String, List<InventoryDoc>> docsByCanonicalPartNumber,
+    required Map<String, List<InventoryDoc>> docsByPartType,
+    required Map<String, List<InventoryDoc>> docsByPartTypeAndPackage,
+  }) : _docsById = docsById,
+       _docsByCanonicalPartNumber = docsByCanonicalPartNumber,
+       _docsByPartType = docsByPartType,
+       _docsByPartTypeAndPackage = docsByPartTypeAndPackage;
+
+  factory InventoryMatcherIndex.fromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final docsById = <String, InventoryDoc>{};
+    final docsByCanonicalPartNumber = <String, List<InventoryDoc>>{};
+    final docsByPartType = <String, List<InventoryDoc>>{};
+    final docsByPartTypeAndPackage = <String, List<InventoryDoc>>{};
+
+    for (final doc in snapshot.docs) {
+      docsById[doc.id] = doc;
+      final data = doc.data();
+
+      final canonicalPartNumber = PartNormalizer.canonicalPartNumber(
+        data[FirestoreFields.partNumber]?.toString() ?? '',
+      );
+      if (canonicalPartNumber.isNotEmpty) {
+        docsByCanonicalPartNumber
+            .putIfAbsent(canonicalPartNumber, () => <InventoryDoc>[])
+            .add(doc);
+      }
+
+      final partType = PartNormalizer.normalizePartType(
+        data[FirestoreFields.type]?.toString() ?? '',
+      );
+      if (partType.isNotEmpty) {
+        docsByPartType.putIfAbsent(partType, () => <InventoryDoc>[]).add(doc);
+
+        final package = PartNormalizer.canonicalPackage(
+          data[FirestoreFields.package]?.toString() ?? '',
+        );
+        if (package.isNotEmpty) {
+          final key = '$partType|$package';
+          docsByPartTypeAndPackage
+              .putIfAbsent(key, () => <InventoryDoc>[])
+              .add(doc);
+        }
+      }
+    }
+
+    return InventoryMatcherIndex._(
+      inventorySnapshot: snapshot,
+      docsById: docsById,
+      docsByCanonicalPartNumber: docsByCanonicalPartNumber,
+      docsByPartType: docsByPartType,
+      docsByPartTypeAndPackage: docsByPartTypeAndPackage,
+    );
+  }
+
+  List<InventoryDoc> get docs => inventorySnapshot.docs;
+
+  InventoryDoc? docById(String docId) => _docsById[docId];
+
+  List<InventoryDoc> docsByPartNumber(String rawPartNumber) {
+    final canonical = PartNormalizer.canonicalPartNumber(rawPartNumber);
+    if (canonical.isEmpty) return const [];
+    return _docsByCanonicalPartNumber[canonical] ?? const [];
+  }
+
+  List<InventoryDoc> docsByPartType(String rawPartType) {
+    final type = PartNormalizer.normalizePartType(rawPartType);
+    if (type.isEmpty) return const [];
+    return _docsByPartType[type] ?? const [];
+  }
+
+  List<InventoryDoc> docsByPartTypeAndPackage(
+    String rawPartType,
+    String rawPackage,
+  ) {
+    final type = PartNormalizer.normalizePartType(rawPartType);
+    final package = PartNormalizer.canonicalPackage(rawPackage);
+    if (type.isEmpty || package.isEmpty) return const [];
+    return _docsByPartTypeAndPackage['$type|$package'] ?? const [];
   }
 }
 

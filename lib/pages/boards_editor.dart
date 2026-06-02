@@ -365,15 +365,20 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
     try {
       // Reload inventory
       await _loadInventoryCache();
+      final inventoryCache = _inventoryCache;
+      if (inventoryCache == null) {
+        throw StateError('Inventory cache unavailable.');
+      }
+      final matcherIndex = InventoryMatcherIndex.fromSnapshot(inventoryCache);
 
       for (final line in _bom) {
         final attrs =
             line[FirestoreFields.requiredAttributes] as Map<String, dynamic>?;
         if (attrs == null) continue;
 
-        final matches = await InventoryMatcher.findMatches(
+        final matches = InventoryMatcher.findMatchesSync(
           bomAttributes: attrs,
-          inventorySnapshot: _inventoryCache,
+          matcherIndex: matcherIndex,
         );
 
         String? currentRef = attrs[FirestoreFields.selectedComponentRef];
@@ -447,7 +452,7 @@ class _BoardEditorPageState extends State<BoardEditorPage> {
   List<ColumnSpec> get _bomColumns => [
     ColumnSpec(
       field: '_ignored',
-      label: 'Ignore',
+      label: 'Lock',
       kind: CellKind.checkbox,
       editable: false,
       maxPercentWidth: 6,

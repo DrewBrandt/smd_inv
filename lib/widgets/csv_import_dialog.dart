@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:smd_inv/constants/firestore_constants.dart';
 import 'package:smd_inv/models/columns.dart';
 import 'package:smd_inv/services/csv_parser_service.dart';
+import 'package:smd_inv/services/inventory_csv_mapper.dart';
+import 'package:smd_inv/services/inventory_history_service.dart';
+import 'package:smd_inv/services/part_normalizer.dart';
 import 'package:smd_inv/widgets/unified_data_grid.dart';
 
 class CSVImportDialog extends StatefulWidget {
-  const CSVImportDialog({super.key});
+  final InventoryHistoryService? historyService;
+
+  const CSVImportDialog({super.key, this.historyService});
 
   @override
   State<CSVImportDialog> createState() => _CSVImportDialogState();
@@ -33,13 +38,7 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     try {
       // Use CsvParserService for consistent parsing
       final parseResult = await CsvParserService.parseFromFile(
-        expectedColumns: [
-          'Item',
-          'Quantity',
-          'Link',
-          'Notes',
-          'Price Per Unit',
-        ],
+        expectedColumns: InventoryCsvMapper.expectedColumns,
       );
 
       if (!parseResult.success) {
@@ -58,12 +57,11 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
         return;
       }
 
-      // Convert parsed rows to inventory items
-      final items = <Map<String, dynamic>>[];
-      for (final row in parseResult.dataRows) {
-        final item = _parseItemFromParsedRow(parseResult, row);
-        if (item != null) items.add(item);
-      }
+      final items = InventoryCsvMapper.toInventoryItems(
+        parseResult,
+        defaultLocation: _defaultLocation,
+        defaultPackage: _defaultPackage,
+      );
 
       setState(() {
         _parsedRows = items;
@@ -77,197 +75,88 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
     }
   }
 
-  /// Parse a single row from CsvParseResult into inventory item format
-  Map<String, dynamic>? _parseItemFromParsedRow(
-    CsvParseResult parseResult,
-    List<dynamic> row,
-  ) {
-    final itemName = parseResult.getCellValue(row, 'Item');
-    if (itemName.isEmpty) return null;
-
-    final qty = int.tryParse(parseResult.getCellValue(row, 'Quantity')) ?? 0;
-    final link = parseResult.getCellValue(row, 'Link');
-    final notes = parseResult.getCellValue(row, 'Notes');
-
-    // Parse price
-    final priceStr = parseResult.getCellValue(row, 'Price Per Unit');
-    double? pricePerUnit;
-    if (priceStr.isNotEmpty) {
-      // Remove $ and parse
-      final cleaned = priceStr.replaceAll(RegExp(r'[^\d.]'), '');
-      pricePerUnit = double.tryParse(cleaned);
-    }
-
-    return _buildInventoryItem(itemName, qty, link, notes, pricePerUnit);
-  }
-
-  /// Build inventory item map from parsed CSV data
-  Map<String, dynamic> _buildInventoryItem(
-    String itemName,
-    int qty,
-    String link,
-    String notes,
-    double? pricePerUnit,
-  ) {
-    // Extract part# from DigiKey URL
-    String partNumber = '';
-    if (link.contains('digikey.com')) {
-      final match = RegExp(r'/detail/[^/]+/([^/]+)/').firstMatch(link);
-      if (match != null) {
-        partNumber = match.group(1)!;
-      }
-    }
-
-    // Detect type and parse accordingly
-    final itemLower = itemName.toLowerCase();
-
-    // Passives (capacitors, resistors, inductors)
-    if (itemLower.contains('cap') || itemLower.contains('uf')) {
-      final value = _extractValue(itemName);
-      return {
-        'part_#':
-            partNumber.isNotEmpty
-                ? partNumber
-                : 'CAP-$_defaultPackage-${value ?? "UNKNOWN"}',
-        'type': 'capacitor',
-        'value': value,
-        'package': _defaultPackage,
-        'description': itemName,
-        'qty': qty,
-        'location': _defaultLocation,
-        'notes': notes,
-        'vendor_link': link,
-        'price_per_unit': pricePerUnit,
-        'datasheet': link,
-      };
-    }
-
-    if (itemLower.contains('resistor') || itemLower.contains('ohm')) {
-      final value = _extractValue(itemName);
-      return {
-        'part_#':
-            partNumber.isNotEmpty
-                ? partNumber
-                : 'RES-$_defaultPackage-${value ?? "UNKNOWN"}',
-        'type': 'resistor',
-        'value': value,
-        'package': _defaultPackage,
-        'description': itemName,
-        'qty': qty,
-        'location': _defaultLocation,
-        'notes': notes,
-        'vendor_link': link,
-        'price_per_unit': pricePerUnit,
-        'datasheet': link,
-      };
-    }
-
-    // Connectors
-    if (itemLower.contains('jst') ||
-        itemLower.contains('connector') ||
-        itemLower.contains('pin male') ||
-        itemLower.contains('pin female')) {
-      return {
-        'part_#': partNumber.isNotEmpty ? partNumber : itemName,
-        'type': 'connector',
-        'value': null,
-        'package': _extractPackage(itemName) ?? '',
-        'description': itemName,
-        'qty': qty,
-        'location': _defaultLocation,
-        'notes': notes,
-        'vendor_link': link,
-        'price_per_unit': pricePerUnit,
-        'datasheet': null,
-      };
-    }
-
-    // Default to IC
-    return {
-      'part_#': partNumber.isNotEmpty ? partNumber : itemName,
-      'type': 'ic',
-      'value': null,
-      'package': _extractPackage(itemName) ?? '',
-      'description': itemName,
-      'qty': qty,
-      'location': _defaultLocation,
-      'notes': notes,
-      'vendor_link': link,
-      'price_per_unit': pricePerUnit,
-      'datasheet': link,
-    };
-  }
-
-  String? _extractValue(String itemName) {
-    // Match patterns like "2.2uF", "10k", "100nF"
-    final match = RegExp(
-      r'(\d+\.?\d*)\s*(u|n|p|k|m|M|G)?(?:F|H|ohm)?',
-      caseSensitive: false,
-    ).firstMatch(itemName);
-
-    if (match != null) {
-      final num = match.group(1);
-      final unit = match.group(2)?.toLowerCase() ?? '';
-
-      // Normalize to standard format
-      if (unit.isEmpty) return num;
-      return '$num$unit';
-    }
-
-    return null;
-  }
-
-  String? _extractPackage(String itemName) {
-    // Common package patterns
-    final patterns = [
-      RegExp(
-        r'\b(SOIC|QFP|QFN|DIP|TSSOP|VFQFPN|LQFP|TQFP)-?\d+\b',
-        caseSensitive: false,
-      ),
-      RegExp(r'\bJST[- ]?[A-Z]{2}[- ]?\d+P?\b', caseSensitive: false),
-    ];
-
-    for (final pattern in patterns) {
-      final match = pattern.firstMatch(itemName);
-      if (match != null) return match.group(0);
-    }
-
-    return null;
-  }
-
   Future<void> _importToFirestore() async {
     if (_parsedRows == null || _parsedRows!.isEmpty) return;
 
     setState(() => _isImporting = true);
 
     try {
+      final inventoryCollection = FirebaseFirestore.instance.collection(
+        FirestoreCollections.inventory,
+      );
+      final existingSnapshot = await inventoryCollection.get();
+      final existingByPart =
+          <
+            String,
+            ({
+              DocumentReference<Map<String, dynamic>> ref,
+              Map<String, dynamic> data,
+            })
+          >{};
+
+      for (final doc in existingSnapshot.docs) {
+        final partNum =
+            doc.data()[FirestoreFields.partNumber]?.toString() ?? '';
+        final canonical = PartNormalizer.canonicalPartNumber(partNum);
+        if (canonical.isEmpty || existingByPart.containsKey(canonical)) {
+          continue;
+        }
+        existingByPart[canonical] = (
+          ref: doc.reference,
+          data: Map<String, dynamic>.from(doc.data()),
+        );
+      }
+
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      var pendingWrites = 0;
+
+      Future<void> flushBatch() async {
+        if (pendingWrites == 0) return;
+        await batch.commit();
+        batch = FirebaseFirestore.instance.batch();
+        pendingWrites = 0;
+      }
+
+      void queueSet(
+        DocumentReference<Map<String, dynamic>> ref,
+        Map<String, dynamic> data,
+      ) {
+        batch.set(ref, data);
+        pendingWrites++;
+      }
+
+      void queueUpdate(
+        DocumentReference<Map<String, dynamic>> ref,
+        Map<String, dynamic> data,
+      ) {
+        batch.update(ref, data);
+        pendingWrites++;
+      }
+
       int imported = 0;
       int skipped = 0;
       bool cancelled = false;
 
+      final addedItems = <ImportedItemRecord>[];
+      final updatedItems = <UpdatedItemRecord>[];
+
       for (final row in _parsedRows!) {
         // Check for duplicates
-        final partNum = row['part_#']?.toString() ?? '';
+        final partNum = row[FirestoreFields.partNumber]?.toString() ?? '';
         if (partNum.isEmpty) {
           skipped++;
           continue;
         }
 
-        final existing =
-            await FirebaseFirestore.instance
-                .collection(FirestoreCollections.inventory)
-                .where(FirestoreFields.partNumber, isEqualTo: partNum)
-                .limit(1)
-                .get();
+        final canonicalPartNum = PartNormalizer.canonicalPartNumber(partNum);
+        final existing = existingByPart[canonicalPartNum];
 
-        if (existing.docs.isNotEmpty) {
+        if (existing != null) {
           // Duplicate found - ask user
           if (!mounted) break;
 
-          final action = await _showDuplicateDialog(
-            row,
-            existing.docs.first.data(),
-          );
+          final currentSnapshot = Map<String, dynamic>.from(existing.data);
+          final action = await _showDuplicateDialog(row, currentSnapshot);
 
           switch (action) {
             case null:
@@ -278,36 +167,91 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
               skipped++;
               continue;
             case 'add':
-              final existingQty = existing.docs.first.data()['qty'] ?? 0;
-              final newQty = row['qty'] ?? 0;
-              await existing.docs.first.reference.update({
-                'qty': existingQty + newQty,
-                'last_updated': FieldValue.serverTimestamp(),
+              final existingQty =
+                  (currentSnapshot[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+              final newQty = (row[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+              final newSnapshot = {
+                ...currentSnapshot,
+                FirestoreFields.qty: existingQty + newQty,
+              };
+              queueUpdate(existing.ref, {
+                FirestoreFields.qty: existingQty + newQty,
+                FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
               });
+              existingByPart[canonicalPartNum] = (
+                ref: existing.ref,
+                data: newSnapshot,
+              );
+              updatedItems.add(
+                UpdatedItemRecord(
+                  docId: existing.ref.id,
+                  importAction: 'add_qty',
+                  oldSnapshot: currentSnapshot,
+                  newSnapshot: newSnapshot,
+                ),
+              );
               imported++;
+              if (pendingWrites >= 400) {
+                await flushBatch();
+              }
               continue;
             case 'replace':
-              await existing.docs.first.reference.set({
-                ...row,
-                'last_updated': FieldValue.serverTimestamp(),
+              final newSnapshot = Map<String, dynamic>.from(row);
+              queueSet(existing.ref, {
+                ...newSnapshot,
+                FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
               });
+              existingByPart[canonicalPartNum] = (
+                ref: existing.ref,
+                data: newSnapshot,
+              );
+              updatedItems.add(
+                UpdatedItemRecord(
+                  docId: existing.ref.id,
+                  importAction: 'replace',
+                  oldSnapshot: currentSnapshot,
+                  newSnapshot: newSnapshot,
+                ),
+              );
               imported++;
+              if (pendingWrites >= 400) {
+                await flushBatch();
+              }
               continue;
           }
 
           if (cancelled) break;
         } else {
           // New item
-          await FirebaseFirestore.instance
-              .collection(FirestoreCollections.inventory)
-              .add({
-                ...row,
-                FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
-              });
+          final docRef = inventoryCollection.doc();
+          final historySnapshot = Map<String, dynamic>.from(row);
+          queueSet(docRef, {
+            ...historySnapshot,
+            FirestoreFields.lastUpdated: FieldValue.serverTimestamp(),
+          });
+          existingByPart[canonicalPartNum] = (
+            ref: docRef,
+            data: historySnapshot,
+          );
+          addedItems.add(
+            ImportedItemRecord(docId: docRef.id, snapshot: historySnapshot),
+          );
           imported++;
+          if (pendingWrites >= 400) {
+            await flushBatch();
+          }
         }
 
         if (cancelled) break;
+      }
+
+      await flushBatch();
+
+      // Record a single history entry for the entire import batch.
+      if (imported > 0) {
+        widget.historyService
+            ?.recordImport(addedItems: addedItems, updatedItems: updatedItems)
+            .catchError((_) {});
       }
 
       if (mounted) {
@@ -399,13 +343,7 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
       // Use CsvParserService for consistent parsing
       final parseResult = CsvParserService.parse(
         text,
-        expectedColumns: [
-          'Item',
-          'Quantity',
-          'Link',
-          'Notes',
-          'Price Per Unit',
-        ],
+        expectedColumns: InventoryCsvMapper.expectedColumns,
       );
 
       if (!parseResult.success) {
@@ -424,12 +362,11 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
         return;
       }
 
-      // Convert parsed rows to inventory items
-      final items = <Map<String, dynamic>>[];
-      for (final row in parseResult.dataRows) {
-        final item = _parseItemFromParsedRow(parseResult, row);
-        if (item != null) items.add(item);
-      }
+      final items = InventoryCsvMapper.toInventoryItems(
+        parseResult,
+        defaultLocation: _defaultLocation,
+        defaultPackage: _defaultPackage,
+      );
 
       setState(() {
         _parsedRows = items;
@@ -586,7 +523,9 @@ class _CSVImportDialogState extends State<CSVImportDialog> {
                                   color: Colors.grey,
                                 ),
                                 const SizedBox(height: 16),
-                                const Text('Import inventory from CSV or TSV'),
+                                const Text(
+                                  'Import inventory from CSV, TSV, or DigiKey export',
+                                ),
                                 const SizedBox(height: 24),
                                 FilledButton.icon(
                                   onPressed: _pickAndParseCSV,

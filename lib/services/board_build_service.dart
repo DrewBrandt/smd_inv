@@ -12,72 +12,36 @@ class BoardBuildService {
   Future<BoardBuildOutcome> makeBoards({
     required BoardDoc board,
     required int quantity,
+    Map<int, BoardBuildLineSelection> lineSelections = const {},
+    QuerySnapshot<Map<String, dynamic>>? inventorySnapshot,
   }) async {
     if (quantity <= 0) {
       throw const BoardBuildException('Quantity must be greater than zero.');
     }
 
-    final activeLines = board.bom.where((line) => !line.ignored).toList();
-    if (activeLines.isEmpty) {
+    final activeEntries =
+        board.bom
+            .asMap()
+            .entries
+            .where((entry) => !entry.value.ignored)
+            .toList();
+    if (activeEntries.isEmpty) {
       throw const BoardBuildException('Board has no active BOM lines.');
     }
 
-    final inventory =
-        await _db.collection(FirestoreCollections.inventory).get();
-    final requiredByDocId = <String, int>{};
-    final consumedMetadataByDocId = <String, Map<String, dynamic>>{};
-    final unresolved = <String>[];
-    final ambiguous = <String>[];
-
-    for (final line in activeLines) {
-      final attrs = line.requiredAttributes;
-      final needed = line.qty * quantity;
-      final matches = await InventoryMatcher.findMatches(
-        bomAttributes: attrs,
-        inventorySnapshot: inventory,
-      );
-
-      if (matches.isEmpty) {
-        unresolved.add(InventoryMatcher.makePartLabel(attrs));
-        continue;
-      }
-
-      QueryDocumentSnapshot<Map<String, dynamic>>? chosen;
-      if (matches.length == 1) {
-        chosen = matches.first;
-      } else {
-        final selectedRef =
-            attrs[FirestoreFields.selectedComponentRef]?.toString().trim();
-        if (selectedRef != null && selectedRef.isNotEmpty) {
-          final exact = matches.where((m) => m.id == selectedRef).toList();
-          if (exact.length == 1) chosen = exact.first;
-        }
-        if (chosen == null) {
-          ambiguous.add(InventoryMatcher.makePartLabel(attrs));
-          continue;
-        }
-      }
-
-      requiredByDocId[chosen.id] = (requiredByDocId[chosen.id] ?? 0) + needed;
-      consumedMetadataByDocId[chosen.id] ??= _snapshotInventoryFields(
-        chosen.data(),
-      );
+    final preview = await previewBuild(
+      board: board,
+      quantity: quantity,
+      lineSelections: lineSelections,
+      inventorySnapshot: inventorySnapshot,
+    );
+    if (preview.issues.isNotEmpty) {
+      throw BoardBuildException(_formatIssuesMessage(preview.issues));
     }
 
-    if (unresolved.isNotEmpty || ambiguous.isNotEmpty) {
-      final details = <String>[];
-      if (unresolved.isNotEmpty) {
-        details.add('Unresolved: ${_formatPartList(unresolved)}');
-      }
-      if (ambiguous.isNotEmpty) {
-        details.add('Ambiguous: ${_formatPartList(ambiguous)}');
-      }
-      throw BoardBuildException(
-        'Cannot build until each active BOM line resolves to exactly one inventory item.\n\n${details.join('\n')}',
-      );
-    }
-
-    if (requiredByDocId.isEmpty) {
+    final requiredByDocId = preview.consumedByDocId;
+    final consumedMetadataByDocId = preview.consumedMetadataByDocId;
+    if (requiredByDocId.isEmpty && preview.skippedLines.isEmpty) {
       throw const BoardBuildException(
         'No inventory items resolved for this board.',
       );
@@ -133,12 +97,170 @@ class BoardBuildService {
                 ...snapshot,
               };
             }).toList(),
+        FirestoreFields.skippedLines:
+            preview.skippedLines.map((line) => line.toMap()).toList(),
       });
     });
 
     return BoardBuildOutcome(
       historyId: historyRef.id,
       consumedByDocId: requiredByDocId,
+    );
+  }
+
+  Future<BoardBuildPreview> previewBuild({
+    required BoardDoc board,
+    required int quantity,
+    Map<int, BoardBuildLineSelection> lineSelections = const {},
+    QuerySnapshot<Map<String, dynamic>>? inventorySnapshot,
+  }) async {
+    if (quantity <= 0) {
+      throw const BoardBuildException('Quantity must be greater than zero.');
+    }
+
+    final activeEntries =
+        board.bom
+            .asMap()
+            .entries
+            .where((entry) => !entry.value.ignored)
+            .toList();
+    if (activeEntries.isEmpty) {
+      return const BoardBuildPreview(
+        consumedByDocId: {},
+        consumedMetadataByDocId: {},
+        issues: [],
+        skippedLines: [],
+      );
+    }
+
+    final inventory =
+        inventorySnapshot ??
+        await _db.collection(FirestoreCollections.inventory).get();
+    final matcherIndex = InventoryMatcherIndex.fromSnapshot(inventory);
+    final requiredByDocId = <String, int>{};
+    final consumedMetadataByDocId = <String, Map<String, dynamic>>{};
+    final issues = <BoardBuildIssue>[];
+    final skippedLines = <BoardBuildSkippedLine>[];
+
+    for (final entry in activeEntries) {
+      final lineIndex = entry.key;
+      final line = entry.value;
+      final attrs = line.requiredAttributes;
+      final needed = line.qty * quantity;
+      final label = InventoryMatcher.makePartLabel(attrs);
+      final selection = lineSelections[lineIndex];
+
+      if (selection?.skip == true) {
+        skippedLines.add(
+          BoardBuildSkippedLine(
+            lineIndex: lineIndex,
+            designators: line.designators,
+            partLabel: label,
+            requiredQty: needed,
+          ),
+        );
+        continue;
+      }
+
+      QueryDocumentSnapshot<Map<String, dynamic>>? chosen;
+      var matches = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final manualDocId = selection?.inventoryDocId?.trim();
+
+      if (manualDocId != null && manualDocId.isNotEmpty) {
+        chosen = _findDocById(inventory, manualDocId);
+        if (chosen == null) {
+          issues.add(
+            BoardBuildIssue(
+              kind: BoardBuildIssueKind.unresolved,
+              lineIndex: lineIndex,
+              line: line,
+              partLabel: label,
+              requiredQty: needed,
+              candidates: const [],
+              selectedDocId: manualDocId,
+              availableQty: 0,
+            ),
+          );
+          continue;
+        }
+      } else {
+        matches = InventoryMatcher.findMatchesSync(
+          bomAttributes: attrs,
+          matcherIndex: matcherIndex,
+        );
+
+        if (matches.isEmpty) {
+          issues.add(
+            BoardBuildIssue(
+              kind: BoardBuildIssueKind.unresolved,
+              lineIndex: lineIndex,
+              line: line,
+              partLabel: label,
+              requiredQty: needed,
+              candidates: const [],
+              selectedDocId: null,
+              availableQty: 0,
+            ),
+          );
+          continue;
+        }
+
+        if (matches.length == 1) {
+          chosen = matches.first;
+        } else {
+          final selectedRef =
+              attrs[FirestoreFields.selectedComponentRef]?.toString().trim();
+          if (selectedRef != null && selectedRef.isNotEmpty) {
+            final exact = matches.where((m) => m.id == selectedRef).toList();
+            if (exact.length == 1) chosen = exact.first;
+          }
+          if (chosen == null) {
+            issues.add(
+              BoardBuildIssue(
+                kind: BoardBuildIssueKind.ambiguous,
+                lineIndex: lineIndex,
+                line: line,
+                partLabel: label,
+                requiredQty: needed,
+                candidates: matches,
+                selectedDocId: selectedRef,
+                availableQty: 0,
+              ),
+            );
+            continue;
+          }
+        }
+      }
+
+      final availableQty =
+          (chosen.data()[FirestoreFields.qty] as num?)?.toInt() ?? 0;
+      if (availableQty < needed) {
+        issues.add(
+          BoardBuildIssue(
+            kind: BoardBuildIssueKind.insufficientStock,
+            lineIndex: lineIndex,
+            line: line,
+            partLabel: label,
+            requiredQty: needed,
+            candidates: matches,
+            selectedDocId: chosen.id,
+            availableQty: availableQty,
+          ),
+        );
+        continue;
+      }
+
+      requiredByDocId[chosen.id] = (requiredByDocId[chosen.id] ?? 0) + needed;
+      consumedMetadataByDocId[chosen.id] ??= _snapshotInventoryFields(
+        chosen.data(),
+      );
+    }
+
+    return BoardBuildPreview(
+      consumedByDocId: requiredByDocId,
+      consumedMetadataByDocId: consumedMetadataByDocId,
+      issues: issues,
+      skippedLines: skippedLines,
     );
   }
 
@@ -161,12 +283,6 @@ class BoardBuildService {
     }
 
     final consumed = (data[FirestoreFields.consumedItems] as List?) ?? const [];
-    if (consumed.isEmpty) {
-      throw const BoardBuildException(
-        'History entry has no consumable item deltas.',
-      );
-    }
-
     final ops = <_UndoRestoreOp>[];
     for (final item in consumed) {
       final map = Map<String, dynamic>.from(item as Map);
@@ -196,7 +312,7 @@ class BoardBuildService {
       }
     }
 
-    if (ops.isEmpty) {
+    if (ops.isEmpty && consumed.isNotEmpty) {
       throw const BoardBuildException(
         'History entry has no valid item deltas to restore.',
       );
@@ -321,6 +437,52 @@ class BoardBuildService {
     return '$shown, +${labels.length - maxItems} more';
   }
 
+  static String _formatIssuesMessage(List<BoardBuildIssue> issues) {
+    final unresolved =
+        issues
+            .where((issue) => issue.kind == BoardBuildIssueKind.unresolved)
+            .map((issue) => issue.partLabel)
+            .toList();
+    final ambiguous =
+        issues
+            .where((issue) => issue.kind == BoardBuildIssueKind.ambiguous)
+            .map((issue) => issue.partLabel)
+            .toList();
+    final insufficient =
+        issues
+            .where(
+              (issue) => issue.kind == BoardBuildIssueKind.insufficientStock,
+            )
+            .map(
+              (issue) =>
+                  '${issue.partLabel} (${issue.availableQty}/${issue.requiredQty})',
+            )
+            .toList();
+
+    final details = <String>[];
+    if (unresolved.isNotEmpty) {
+      details.add('Unresolved: ${_formatPartList(unresolved)}');
+    }
+    if (ambiguous.isNotEmpty) {
+      details.add('Ambiguous: ${_formatPartList(ambiguous)}');
+    }
+    if (insufficient.isNotEmpty) {
+      details.add('Insufficient stock: ${_formatPartList(insufficient)}');
+    }
+
+    return 'Cannot build until each active BOM line resolves to exactly one inventory item, or is skipped.\n\n${details.join('\n')}';
+  }
+
+  static QueryDocumentSnapshot<Map<String, dynamic>>? _findDocById(
+    QuerySnapshot<Map<String, dynamic>> inventory,
+    String docId,
+  ) {
+    for (final doc in inventory.docs) {
+      if (doc.id == docId) return doc;
+    }
+    return null;
+  }
+
   static num? _toNum(dynamic raw) {
     if (raw is num) return raw;
     final s = _readTrimmedString(raw);
@@ -344,6 +506,81 @@ class BoardBuildException implements Exception {
 
   const BoardBuildException(this.message);
 }
+
+class BoardBuildPreview {
+  final Map<String, int> consumedByDocId;
+  final Map<String, Map<String, dynamic>> consumedMetadataByDocId;
+  final List<BoardBuildIssue> issues;
+  final List<BoardBuildSkippedLine> skippedLines;
+
+  const BoardBuildPreview({
+    required this.consumedByDocId,
+    required this.consumedMetadataByDocId,
+    required this.issues,
+    required this.skippedLines,
+  });
+}
+
+class BoardBuildLineSelection {
+  final String? inventoryDocId;
+  final bool skip;
+
+  const BoardBuildLineSelection({this.inventoryDocId, this.skip = false});
+
+  BoardBuildLineSelection copyWith({String? inventoryDocId, bool? skip}) {
+    return BoardBuildLineSelection(
+      inventoryDocId: inventoryDocId,
+      skip: skip ?? this.skip,
+    );
+  }
+}
+
+class BoardBuildSkippedLine {
+  final int lineIndex;
+  final String designators;
+  final String partLabel;
+  final int requiredQty;
+
+  const BoardBuildSkippedLine({
+    required this.lineIndex,
+    required this.designators,
+    required this.partLabel,
+    required this.requiredQty,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'line_index': lineIndex,
+      'designators': designators,
+      'part_label': partLabel,
+      'required_qty': requiredQty,
+    };
+  }
+}
+
+class BoardBuildIssue {
+  final BoardBuildIssueKind kind;
+  final int lineIndex;
+  final BomLine line;
+  final String partLabel;
+  final int requiredQty;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> candidates;
+  final String? selectedDocId;
+  final int availableQty;
+
+  const BoardBuildIssue({
+    required this.kind,
+    required this.lineIndex,
+    required this.line,
+    required this.partLabel,
+    required this.requiredQty,
+    required this.candidates,
+    required this.selectedDocId,
+    required this.availableQty,
+  });
+}
+
+enum BoardBuildIssueKind { unresolved, ambiguous, insufficientStock }
 
 class _UndoRestoreOp {
   final DocumentReference<Map<String, dynamic>> ref;

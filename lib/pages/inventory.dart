@@ -1,8 +1,11 @@
 // lib/pages/inventory.dart
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:smd_inv/services/auth_service.dart';
+import 'package:smd_inv/services/inventory_history_service.dart';
 import 'package:smd_inv/widgets/unified_data_grid.dart';
 import 'package:smd_inv/widgets/manual_add_dialog.dart';
 import 'package:smd_inv/widgets/csv_import_dialog.dart';
@@ -17,8 +20,11 @@ class FullList extends StatefulWidget {
 }
 
 class _FullListState extends State<FullList> {
+  final _historyService = InventoryHistoryService();
+
   String _searchQuery = '';
   final _searchController = TextEditingController();
+  Timer? _searchDebounce;
 
   // Filter states
   Set<String> _selectedTypes = {};
@@ -38,8 +44,20 @@ class _FullListState extends State<FullList> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// Debounced search update — wait for a short pause in typing before
+  /// re-running the (client-side) filter, so a fast typist doesn't trigger a
+  /// filter pass on every keystroke.
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() => _searchQuery = value.trim());
+    });
   }
 
   Future<void> _loadFilterOptions() async {
@@ -95,6 +113,7 @@ class _FullListState extends State<FullList> {
                         : IconButton(
                           tooltip: 'Clear search',
                           onPressed: () {
+                            _searchDebounce?.cancel();
                             _searchController.clear();
                             setState(() => _searchQuery = '');
                           },
@@ -109,7 +128,7 @@ class _FullListState extends State<FullList> {
                   vertical: 10,
                 ),
               ),
-              onChanged: (v) => setState(() => _searchQuery = v.trim()),
+              onChanged: _onSearchChanged,
             ),
           ),
           const SizedBox(width: 12),
@@ -274,14 +293,14 @@ class _FullListState extends State<FullList> {
   void _addManualRow() {
     showDialog(
       context: context,
-      builder: (ctx) => const ManualAddDialog(),
+      builder: (ctx) => ManualAddDialog(historyService: _historyService),
     ).then((_) => _loadFilterOptions()); // Refresh filter options after adding
   }
 
   void _importCSV() {
     showDialog(
       context: context,
-      builder: (ctx) => const CSVImportDialog(),
+      builder: (ctx) => CSVImportDialog(historyService: _historyService),
     ).then((_) => _loadFilterOptions()); // Refresh filter options after import
   }
 
@@ -348,6 +367,7 @@ class _FullListState extends State<FullList> {
                     _selectedLocations.isEmpty
                         ? null
                         : _selectedLocations.toList(),
+                historyService: canEdit ? _historyService : null,
                 allowEditing: canEdit,
                 enableRowMenu: canEdit,
               ),

@@ -1,3 +1,12 @@
+/// Action type strings stored in history documents
+abstract class HistoryActions {
+  static const String makeBoard = 'make_board';
+  static const String editItem = 'edit_item';
+  static const String deleteItem = 'delete_item';
+  static const String addItem = 'add_item';
+  static const String importCsv = 'import_csv';
+}
+
 /// Firestore collection names used throughout the app
 abstract class FirestoreCollections {
   static const String inventory = 'inventory';
@@ -42,7 +51,22 @@ abstract class FirestoreFields {
   static const String timestamp = 'timestamp';
   static const String bomSnapshot = 'bom_snapshot';
   static const String consumedItems = 'consumed_items';
+  static const String skippedLines = 'skipped_lines';
   static const String undoneAt = 'undone_at';
+
+  // Edit / delete / add history fields
+  static const String editedField = 'field';
+  static const String oldValue = 'old_value';
+  static const String newValue = 'new_value';
+  static const String itemSnapshot = 'item_snapshot';
+
+  // CSV import history fields
+  static const String itemCount = 'item_count';
+  static const String addedItems = 'added_items';
+  static const String updatedItems = 'updated_items';
+  static const String importAction = 'import_action';
+  static const String oldSnapshot = 'old_snapshot';
+  static const String newSnapshot = 'new_snapshot';
 
   // Utility fields
   static const String docId = 'doc_id';

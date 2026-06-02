@@ -16,6 +16,11 @@ abstract class BaseDataGridSource extends DataGridSource {
 
   List<DataGridRow> _dataGridRows = [];
 
+  /// Maps a DataGridRow back to its index in [_dataGridRows] so that
+  /// [buildRow] (called for every visible row on every frame) does not have
+  /// to do an O(n) `indexOf` scan, which made rendering O(n²).
+  final Map<DataGridRow, int> _rowToIndex = {};
+
   BaseDataGridSource({required this.columns, required this.colorScheme}) {
     _buildRows();
   }
@@ -40,7 +45,26 @@ abstract class BaseDataGridSource extends DataGridSource {
 
   void _buildRows() {
     _dataGridRows = List.generate(rowCount, (i) => buildRowForIndex(i));
+    _reindexRows();
   }
+
+  /// Rebuilds the row→index lookup. Cheap (O(n)) and only runs when the row
+  /// set changes, never per-frame.
+  void _reindexRows() {
+    _rowToIndex.clear();
+    for (var i = 0; i < _dataGridRows.length; i++) {
+      // putIfAbsent mirrors `indexOf`'s first-occurrence semantics for any
+      // rows that happen to compare equal.
+      _rowToIndex.putIfAbsent(_dataGridRows[i], () => i);
+    }
+  }
+
+  int _indexOfRow(DataGridRow row) =>
+      _rowToIndex[row] ?? _dataGridRows.indexOf(row);
+
+  /// Rebuilds all rows from the current data and refreshes the index.
+  /// Subclasses call this after their backing data changes.
+  void rebuildRows() => _buildRows();
 
   @override
   List<DataGridRow> get rows => _dataGridRows;
@@ -86,7 +110,7 @@ abstract class BaseDataGridSource extends DataGridSource {
   // Common buildRow from FirestoreDataSource (it had the URL logic)
   @override
   DataGridRowAdapter buildRow(DataGridRow row) {
-    final rowIndex = _dataGridRows.indexOf(row);
+    final rowIndex = _indexOfRow(row);
     final even = rowIndex.isEven;
     final altColor =
         even
@@ -147,18 +171,34 @@ abstract class BaseDataGridSource extends DataGridSource {
   Widget _buildCheckboxCell(int rowIndex, String field) {
     final rowData = getRowData(rowIndex);
     final isChecked = rowData[field] == true;
+    final isLockField = field == '_ignored';
 
     return Center(
-      child: Checkbox(
-        value: isChecked,
-        onChanged: (value) async {
-          final nextValue = value ?? false;
-          await onCommitValue(rowIndex, field, nextValue);
-          rowData[field] = nextValue;
-          _dataGridRows[rowIndex] = buildRowForIndex(rowIndex);
-          notifyListeners();
-        },
-      ),
+      child:
+          isLockField
+              ? IconButton(
+                tooltip: isChecked ? 'Locked' : 'Unlocked',
+                icon: Icon(isChecked ? Icons.lock : Icons.lock_open, size: 18),
+                onPressed: () async {
+                  final nextValue = !isChecked;
+                  await onCommitValue(rowIndex, field, nextValue);
+                  rowData[field] = nextValue;
+                  _dataGridRows[rowIndex] = buildRowForIndex(rowIndex);
+                  _reindexRows();
+                  notifyListeners();
+                },
+              )
+              : Checkbox(
+                value: isChecked,
+                onChanged: (value) async {
+                  final nextValue = value ?? false;
+                  await onCommitValue(rowIndex, field, nextValue);
+                  rowData[field] = nextValue;
+                  _dataGridRows[rowIndex] = buildRowForIndex(rowIndex);
+                  _reindexRows();
+                  notifyListeners();
+                },
+              ),
     );
   }
 
@@ -207,7 +247,7 @@ abstract class BaseDataGridSource extends DataGridSource {
 
     if (newCellValue == oldValue) return;
 
-    final int dataRowIndex = _dataGridRows.indexOf(dataGridRow);
+    final int dataRowIndex = _indexOfRow(dataGridRow);
     final field = column.columnName;
     final colSpec = columns.firstWhere((c) => c.field == field);
 
@@ -222,6 +262,9 @@ abstract class BaseDataGridSource extends DataGridSource {
             newCellValue!.isEmpty ? null : double.tryParse(newCellValue!);
         break;
       case CellKind.dropdown:
+        final trimmed = newCellValue!.trim();
+        parsedValue = trimmed.isEmpty ? null : trimmed;
+        break;
       case CellKind.text:
       case CellKind.url:
         parsedValue = newCellValue;
@@ -235,6 +278,7 @@ abstract class BaseDataGridSource extends DataGridSource {
 
     // 2. Rebuild the single row in the local cache
     _dataGridRows[dataRowIndex] = buildRowForIndex(dataRowIndex);
+    _reindexRows();
 
     // 3. Notify the grid
     notifyListeners();
@@ -268,7 +312,7 @@ abstract class BaseDataGridSource extends DataGridSource {
         return const Text('No options provider');
       }
 
-      final rowIndex = _dataGridRows.indexOf(dataGridRow);
+      final rowIndex = _indexOfRow(dataGridRow);
       final rowData = getRowData(rowIndex);
 
       return _DropdownEditor(
@@ -510,26 +554,33 @@ class _DropdownEditorState extends State<_DropdownEditor> {
                     ),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child:
-                      _filteredOptions.isEmpty
-                          ? Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Text(
-                              'No matches found',
-                              style: TextStyle(
-                                color: widget.colorScheme.onSurfaceVariant,
-                              ),
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount:
+                        (widget.currentValue.isNotEmpty ? 1 : 0) +
+                        (_filteredOptions.isEmpty ? 1 : _filteredOptions.length),
+                    itemBuilder: (context, index) {
+                      // "None" clear tile — only shown when a value is selected
+                      if (widget.currentValue.isNotEmpty && index == 0) {
+                        return _buildClearTile();
+                      }
+                      final adjustedIndex =
+                          index - (widget.currentValue.isNotEmpty ? 1 : 0);
+                      if (_filteredOptions.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(
+                            'No matches found',
+                            style: TextStyle(
+                              color: widget.colorScheme.onSurfaceVariant,
                             ),
-                          )
-                          : ListView.builder(
-                            padding: EdgeInsets.zero,
-                            shrinkWrap: true,
-                            itemCount: _filteredOptions.length,
-                            itemBuilder: (context, index) {
-                              final option = _filteredOptions[index];
-                              return _buildOptionTile(option);
-                            },
                           ),
+                        );
+                      }
+                      return _buildOptionTile(_filteredOptions[adjustedIndex]);
+                    },
+                  ),
                 ),
               ),
             ),
@@ -542,6 +593,36 @@ class _DropdownEditorState extends State<_DropdownEditor> {
   void _removeOverlay() {
     _overlayEntry?.remove();
     _overlayEntry = null;
+  }
+
+  Widget _buildClearTile() {
+    return InkWell(
+      onTap: () {
+        _removeOverlay();
+        widget.onChanged('');
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: widget.colorScheme.outlineVariant),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.link_off, size: 14, color: widget.colorScheme.error),
+            const SizedBox(width: 8),
+            Text(
+              '— None (unpair) —',
+              style: TextStyle(
+                fontSize: 13,
+                color: widget.colorScheme.error,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildOptionTile(Map<String, String> option) {
@@ -760,7 +841,9 @@ class _DropdownEditorState extends State<_DropdownEditor> {
             if (_overlayEntry == null) _showOverlay();
           },
           onSubmitted: (_) {
-            if (_filteredOptions.length == 1) {
+            if (_searchController.text.trim().isEmpty) {
+              widget.onChanged('');
+            } else if (_filteredOptions.length == 1) {
               widget.onChanged(_filteredOptions.first['id']);
             }
             _removeOverlay();

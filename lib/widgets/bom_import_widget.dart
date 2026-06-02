@@ -148,13 +148,14 @@ class _BomImportWidgetState extends State<BomImportWidget> {
       final db = widget.firestore ?? FirebaseFirestore.instance;
       final inventory =
           await db.collection(FirestoreCollections.inventory).get();
+      final matcherIndex = InventoryMatcherIndex.fromSnapshot(inventory);
 
       for (final line in _parsedBom!) {
         final attrs = line['required_attributes'] as Map<String, dynamic>;
 
-        final matches = await InventoryMatcher.findMatches(
+        final matches = InventoryMatcher.findMatchesSync(
           bomAttributes: attrs,
-          inventorySnapshot: inventory,
+          matcherIndex: matcherIndex,
         );
 
         if (matches.isEmpty) {

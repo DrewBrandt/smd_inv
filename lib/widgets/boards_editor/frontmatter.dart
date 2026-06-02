@@ -1,17 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:smd_inv/utils/image_url_utils.dart';
-
-/// Category color mapping
-const Map<String, Color> kCategoryColors = {
-  'Radio': Color(0xFF77C0FC),
-  'FC': Color(0xFF88E08B),
-  'GS': Color.fromARGB(255, 255, 165, 19),
-  'Misc': Colors.grey,
-};
+import 'package:smd_inv/utils/board_category_colors.dart';
 
 Color categoryColor(String? key, Color fallback) {
-  if (key == null) return fallback;
-  return kCategoryColors[key] ?? fallback;
+  return boardCategoryColor(key, fallback);
 }
 
 class FrontmatterSection extends StatefulWidget {
@@ -174,7 +166,7 @@ class _FrontmatterSectionState extends State<FrontmatterSection> {
             isDense: true,
           ),
           items:
-              kCategoryColors.keys.map((c) {
+              kBoardCategoryColors.keys.map((c) {
                 return DropdownMenuItem<String>(
                   value: c,
                   child: Row(
@@ -224,27 +216,24 @@ class _FrontmatterSectionState extends State<FrontmatterSection> {
                 ),
               ],
             ),
-            child:
-                ClipOval(
-                  child:
-                      imageUrl == null
-                          ? const Center(
-                            child: Icon(Icons.image_outlined, size: 48),
-                          )
-                          : Image.network(
-                            imageUrl,
-                            fit: BoxFit.cover,
-                            webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
-                            errorBuilder:
-                                (context, error, stackTrace) => Center(
-                                  child: Icon(
-                                    Icons.broken_image_outlined,
-                                    size: 48,
-                                    color: cs.outline,
-                                  ),
-                                ),
+            child: ClipOval(
+              child:
+                  imageUrl == null
+                      ? const Center(
+                        child: Icon(Icons.image_outlined, size: 48),
+                      )
+                      : buildBoardImage(
+                        imageUrl: imageUrl,
+                        fallback: Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            size: 48,
+                            color: cs.outline,
                           ),
-                ),
+                        ),
+                        fit: BoxFit.cover,
+                      ),
+            ),
           ),
           if (_hovering)
             Container(

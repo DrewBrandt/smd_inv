@@ -243,6 +243,128 @@ void main() {
       },
     );
 
+    test('makeBoards allows skipping unresolved lines', () async {
+      final invRef = await db.collection(FirestoreCollections.inventory).add({
+        FirestoreFields.partNumber: 'R-10K',
+        FirestoreFields.type: 'resistor',
+        FirestoreFields.value: '10k',
+        FirestoreFields.package: '0603',
+        FirestoreFields.qty: 10,
+      });
+
+      final board = BoardDoc(
+        id: 'board-skip',
+        name: 'Skippable',
+        bom: [
+          BomLine(
+            designators: 'R1',
+            qty: 1,
+            requiredAttributes: {
+              'part_type': 'resistor',
+              FirestoreFields.value: '10k',
+              'size': '0603',
+              FirestoreFields.selectedComponentRef: invRef.id,
+            },
+          ),
+          BomLine(
+            designators: 'U1',
+            qty: 1,
+            requiredAttributes: {
+              'part_type': 'ic',
+              FirestoreFields.partNumber: 'MISSING-IC',
+            },
+          ),
+        ],
+      );
+
+      final outcome = await service.makeBoards(
+        board: board,
+        quantity: 2,
+        lineSelections: const {1: BoardBuildLineSelection(skip: true)},
+      );
+
+      final invAfter = await invRef.get();
+      expect(invAfter.data()?[FirestoreFields.qty], 8);
+
+      final history =
+          await db
+              .collection(FirestoreCollections.history)
+              .doc(outcome.historyId)
+              .get();
+      expect((history.data()?[FirestoreFields.skippedLines] as List).length, 1);
+    });
+
+    test('makeBoards allows manual substitute for unresolved line', () async {
+      final substitute = await db
+          .collection(FirestoreCollections.inventory)
+          .add({
+            FirestoreFields.partNumber: 'ALT-IC',
+            FirestoreFields.type: 'ic',
+            FirestoreFields.value: '',
+            FirestoreFields.package: 'QFN-32',
+            FirestoreFields.qty: 5,
+          });
+
+      final board = BoardDoc(
+        id: 'board-sub',
+        name: 'Substitute',
+        bom: [
+          BomLine(
+            designators: 'U1',
+            qty: 2,
+            requiredAttributes: {
+              'part_type': 'ic',
+              FirestoreFields.partNumber: 'NOT-IN-STOCK',
+            },
+          ),
+        ],
+      );
+
+      final outcome = await service.makeBoards(
+        board: board,
+        quantity: 2,
+        lineSelections: {
+          0: BoardBuildLineSelection(inventoryDocId: substitute.id),
+        },
+      );
+
+      expect(outcome.consumedByDocId, {substitute.id: 4});
+      final invAfter = await substitute.get();
+      expect(invAfter.data()?[FirestoreFields.qty], 1);
+    });
+
+    test('undoMakeHistory marks skipped-only builds as undone', () async {
+      final board = BoardDoc(
+        id: 'board-skip-only',
+        name: 'Skip Only',
+        bom: [
+          BomLine(
+            designators: 'U1',
+            qty: 1,
+            requiredAttributes: {
+              'part_type': 'ic',
+              FirestoreFields.partNumber: 'MISSING-ONLY',
+            },
+          ),
+        ],
+      );
+
+      final outcome = await service.makeBoards(
+        board: board,
+        quantity: 1,
+        lineSelections: const {0: BoardBuildLineSelection(skip: true)},
+      );
+
+      await service.undoMakeHistory(outcome.historyId);
+
+      final history =
+          await db
+              .collection(FirestoreCollections.history)
+              .doc(outcome.historyId)
+              .get();
+      expect(history.data()?[FirestoreFields.undoneAt], isNotNull);
+    });
+
     test(
       'undoMakeHistory restores inventory and marks history as undone',
       () async {
