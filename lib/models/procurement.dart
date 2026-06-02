@@ -66,6 +66,7 @@ class ProcurementLine {
   final String partNumber;
   final String? digikeyPartNumber;
   final String partType;
+  final String value;
   final String package;
   final String description;
   final int requiredQty;
@@ -83,6 +84,7 @@ class ProcurementLine {
     required this.partNumber,
     required this.digikeyPartNumber,
     required this.partType,
+    this.value = '',
     required this.package,
     required this.description,
     required this.requiredQty,
@@ -138,6 +140,7 @@ class ProcurementLine {
               ? this.digikeyPartNumber
               : digikeyPartNumber as String?,
       partType: partType,
+      value: value,
       package: package,
       description: description,
       requiredQty: requiredQty,

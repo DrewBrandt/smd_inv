@@ -817,6 +817,7 @@ class _BoardsPageState extends State<BoardsPage> {
               columns: const [
                 DataColumn(label: Text('Part')),
                 DataColumn(label: Text('Type')),
+                DataColumn(label: Text('Value')),
                 DataColumn(label: Text('Stock')),
                 DataColumn(label: Text('Need')),
                 DataColumn(label: Text('Left')),
@@ -826,18 +827,13 @@ class _BoardsPageState extends State<BoardsPage> {
               ],
               rows:
                   lines.map((line) {
-                    final id = line.partNumber.isEmpty ? '-' : line.partNumber;
                     return DataRow(
                       cells: [
-                        DataCell(
-                          SizedBox(
-                            width: 220,
-                            child: Text(id, overflow: TextOverflow.ellipsis),
-                          ),
-                        ),
+                        DataCell(_buildPartCell(line, width: 220)),
                         DataCell(
                           Text(line.partType.isEmpty ? '-' : line.partType),
                         ),
+                        DataCell(Text(line.value.isEmpty ? '-' : line.value)),
                         DataCell(Text('${line.inStockQty}')),
                         DataCell(Text('${line.requiredQty}')),
                         DataCell(Text('${line.remainingAfterRequired}')),
@@ -878,6 +874,7 @@ class _BoardsPageState extends State<BoardsPage> {
           DataColumn(label: Text('DigiKey PN')),
           DataColumn(label: Text('DigiKey')),
           DataColumn(label: Text('Type')),
+          DataColumn(label: Text('Value')),
           DataColumn(label: Text('Pkg')),
           DataColumn(label: Text('Need')),
           DataColumn(label: Text('Stock')),
@@ -887,7 +884,6 @@ class _BoardsPageState extends State<BoardsPage> {
         ],
         rows:
             lines.map((line) {
-              final id = line.partNumber.isEmpty ? '-' : line.partNumber;
               final digikeyPn = line.digikeyPartNumber?.trim() ?? '';
               return DataRow(
                 cells: [
@@ -898,15 +894,11 @@ class _BoardsPageState extends State<BoardsPage> {
                       icon: const Icon(Icons.delete_outline),
                     ),
                   ),
-                  DataCell(
-                    SizedBox(
-                      width: 250,
-                      child: Text(id, overflow: TextOverflow.ellipsis),
-                    ),
-                  ),
+                  DataCell(_buildPartCell(line, width: 250)),
                   DataCell(_buildDigiKeyPnCell(line, digikeyPn)),
                   DataCell(_buildDigiKeyStatus(line)),
                   DataCell(Text(line.partType.isEmpty ? '-' : line.partType)),
+                  DataCell(Text(line.value.isEmpty ? '-' : line.value)),
                   DataCell(Text(line.package.isEmpty ? '-' : line.package)),
                   DataCell(Text('${line.requiredQty}')),
                   DataCell(Text('${line.inStockQty}')),
@@ -932,6 +924,39 @@ class _BoardsPageState extends State<BoardsPage> {
             }).toList(),
       ),
     );
+  }
+
+  Widget _buildPartCell(ProcurementLine line, {required double width}) {
+    final id = line.partNumber.isEmpty ? '-' : line.partNumber;
+    return Tooltip(
+      message: _partDetailsTooltip(line),
+      child: SizedBox(
+        width: width,
+        child: Text(id, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+
+  String _partDetailsTooltip(ProcurementLine line) {
+    final details = <String>[];
+    if (line.partNumber.trim().isNotEmpty) {
+      details.add('Part: ${line.partNumber.trim()}');
+    }
+    final dk = line.digikeyPartNumber?.trim() ?? '';
+    if (dk.isNotEmpty) details.add('DigiKey PN: $dk');
+    if (line.partType.trim().isNotEmpty) {
+      details.add('Type: ${line.partType.trim()}');
+    }
+    if (line.value.trim().isNotEmpty) {
+      details.add('Value: ${line.value.trim()}');
+    }
+    if (line.package.trim().isNotEmpty) {
+      details.add('Package: ${line.package.trim()}');
+    }
+    if (line.description.trim().isNotEmpty) {
+      details.add('Description: ${line.description.trim()}');
+    }
+    return details.isEmpty ? 'No part details' : details.join('\n');
   }
 
   Widget _buildDigiKeyPnCell(ProcurementLine line, String digikeyPn) {

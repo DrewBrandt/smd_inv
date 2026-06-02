@@ -76,6 +76,7 @@ class ProcurementPlannerService {
         () => _FallbackLine(
           partNumber: rawPartNumber,
           partType: partType,
+          value: value,
           package: pkg,
           description: description,
         ),
@@ -190,6 +191,7 @@ class ProcurementPlannerService {
           (data[FirestoreFields.partNumber]?.toString() ?? '').trim();
       final vendorLink = _cleanString(data[FirestoreFields.vendorLink]);
       final partType = _cleanString(data[FirestoreFields.type]);
+      final value = _cleanString(data[FirestoreFields.value]);
       lines.add(
         ProcurementLine(
           source: ProcurementLineSource.inventory,
@@ -200,6 +202,7 @@ class ProcurementPlannerService {
             fallbackPartNumber: partNumber,
           ),
           partType: partType,
+          value: value,
           package: _cleanString(data[FirestoreFields.package]),
           description: _cleanString(data[FirestoreFields.description]),
           requiredQty: requiredQty,
@@ -227,6 +230,7 @@ class ProcurementPlannerService {
             fallbackPartNumber: item.partNumber,
           ),
           partType: item.partType,
+          value: item.value,
           package: item.package,
           description: item.description,
           requiredQty: item.requiredQty,
@@ -290,6 +294,7 @@ class ProcurementPlannerService {
             fallbackPartNumber: item.digikeyPartNumber ?? partNumber,
           ),
           partType: (item.partType ?? '').trim(),
+          value: '',
           package: (item.package ?? '').trim(),
           description: description.isNotEmpty ? description : partNumber,
           requiredQty: item.quantity,
@@ -397,6 +402,7 @@ class _IssueAccum {
 class _FallbackLine {
   final String partNumber;
   final String partType;
+  final String value;
   final String package;
   final String description;
   int requiredQty = 0;
@@ -405,6 +411,7 @@ class _FallbackLine {
   _FallbackLine({
     required this.partNumber,
     required this.partType,
+    required this.value,
     required this.package,
     required this.description,
   });

@@ -313,6 +313,7 @@ void main() {
       final resistor = plan.lowStockLines.firstWhere(
         (line) => line.inventoryDocId == resistorRef.id,
       );
+      expect(resistor.value, '1k');
       expect(resistor.remainingAfterRequired, 9);
       expect(resistor.lowStockThreshold, 10);
 
