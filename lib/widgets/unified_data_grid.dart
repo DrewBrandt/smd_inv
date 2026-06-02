@@ -14,6 +14,7 @@ import '../data/inventory_repo.dart';
 import '../models/columns.dart';
 import '../services/datagrid_column_manager.dart';
 import '../services/inventory_history_service.dart';
+import '../utils/browser_context_menu_suppressor.dart';
 
 typedef Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
@@ -186,6 +187,8 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
   DataGridColumnManager? _columnManager;
   bool _prefsLoaded = false;
   InventoryRepo? _inventoryRepo;
+  final _gridBoundsKey = GlobalKey();
+  final _browserContextMenuSuppressor = BrowserContextMenuSuppressor();
 
   // ── Firestore-backed state (inventory & collection modes) ──
   // The stream is subscribed once and only re-subscribed when the *server-side*
@@ -240,8 +243,24 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
 
   @override
   void dispose() {
+    _browserContextMenuSuppressor.dispose();
     _docsSub?.cancel();
     super.dispose();
+  }
+
+  void _updateBrowserContextMenuBounds(bool enabled) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!enabled) {
+        _browserContextMenuSuppressor.updateBounds(null);
+        return;
+      }
+
+      final renderObject = _gridBoundsKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderBox || !renderObject.attached) return;
+      final topLeft = renderObject.localToGlobal(Offset.zero);
+      _browserContextMenuSuppressor.updateBounds(topLeft & renderObject.size);
+    });
   }
 
   /// (Re)subscribes to the appropriate Firestore stream. Called once on init
@@ -438,9 +457,12 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
   }) {
     final headerBg = Theme.of(context).colorScheme.primaryContainer;
     final headerFg = Theme.of(context).colorScheme.onPrimaryContainer;
+    final rowMenuEnabled =
+        widget.enableRowMenu && widget.allowEditing && firestoreSource != null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        _updateBrowserContextMenuBounds(rowMenuEnabled);
         final widths = _columnManager?.calculateWidths(constraints) ?? {};
 
         final gridColumns =
@@ -470,6 +492,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
                 .toList();
 
         return DecoratedBox(
+          key: _gridBoundsKey,
           decoration: BoxDecoration(
             border: Border.all(
               color: Theme.of(context).colorScheme.outlineVariant,
@@ -517,9 +540,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
                   onColumnResizeUpdate: _onColumnResizeUpdate,
                   onColumnResizeEnd: _onColumnResizeEnd,
                   onCellSecondaryTap:
-                      widget.enableRowMenu &&
-                              widget.allowEditing &&
-                              firestoreSource != null
+                      rowMenuEnabled
                           ? (details) => _showRowMenu(
                             globalPosition: details.globalPosition,
                             gridRowIndex: details.rowColumnIndex.rowIndex,
@@ -527,9 +548,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
                           )
                           : null,
                   onCellLongPress:
-                      widget.enableRowMenu &&
-                              widget.allowEditing &&
-                              firestoreSource != null
+                      rowMenuEnabled
                           ? (details) => _showRowMenu(
                             globalPosition: details.globalPosition,
                             gridRowIndex: details.rowColumnIndex.rowIndex,
@@ -573,9 +592,7 @@ class _UnifiedDataGridState extends State<UnifiedDataGrid>
     if (_streamError != null) {
       return Center(child: Text('Error: $_streamError'));
     }
-    if (!_prefsLoaded ||
-        !_firstSnapshotReceived ||
-        _firestoreSource == null) {
+    if (!_prefsLoaded || !_firstSnapshotReceived || _firestoreSource == null) {
       return const Center(child: CircularProgressIndicator());
     }
 

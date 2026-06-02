@@ -496,6 +496,10 @@ class _BoardsPageState extends State<BoardsPage> {
     QuerySnapshot<Map<String, dynamic>> inventory,
   ) {
     final cs = Theme.of(context).colorScheme;
+    final maxPanelHeight = (MediaQuery.sizeOf(context).height * 0.58).clamp(
+      260.0,
+      560.0,
+    );
     final boardOrders = _toBoardOrders(boards);
     final hasAnyCartItems = boardOrders.isNotEmpty || _manualLines.isNotEmpty;
 
@@ -544,117 +548,126 @@ class _BoardsPageState extends State<BoardsPage> {
           final totalLinesInCart =
               _boardCartQtyById.length + _manualLines.length;
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+          return ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxPanelHeight),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Purchase Planner ($totalLinesInCart)',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(width: 10),
-                  Chip(
-                    avatar: const Icon(Icons.warning_amber_rounded, size: 16),
-                    label: Text(
-                      '${plan.unresolvedCount} unresolved, ${plan.ambiguousCount} ambiguous',
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: _clearCart,
-                    icon: const Icon(Icons.clear_all),
-                    label: const Text('Clear Cart'),
-                  ),
-                  const SizedBox(width: 6),
-                  OutlinedButton.icon(
-                    onPressed: () => _showAddInventoryLineDialog(inventory),
-                    icon: const Icon(Icons.playlist_add),
-                    label: const Text('Add Inventory Item'),
-                  ),
-                  const SizedBox(width: 6),
-                  OutlinedButton.icon(
-                    onPressed: _showAddManualLineDialog,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Custom Line'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _SummaryChip(
-                    icon: Icons.list_alt_rounded,
-                    label: 'Needed',
-                    value: '${plan.totalRequiredQty}',
-                  ),
-                  _SummaryChip(
-                    icon: Icons.shopping_cart_checkout_rounded,
-                    label: 'To Order',
-                    value: '${plan.totalShortageQty}',
-                  ),
-                  _SummaryChip(
-                    icon: Icons.receipt_long_rounded,
-                    label: 'Orderable Lines',
-                    value:
-                        '${plan.exportableLines.length}/${orderLines.length}',
-                  ),
-                  _SummaryChip(
-                    icon: Icons.monetization_on_outlined,
-                    label: 'Known Cost',
-                    value: '\$${plan.knownOrderCost.toStringAsFixed(2)}',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (_boardCartQtyById.isNotEmpty) _buildBoardCartSection(boards),
-              if (_manualLines.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                _buildManualLinesSection(),
-              ],
-              if (plan.issues.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _buildIssuesSection(plan),
-              ],
-              const SizedBox(height: 12),
-              if (orderLines.isEmpty)
-                const Text('No shortages detected for current cart.')
-              else
-                _buildOrderLinesTable(orderLines),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  FilledButton.icon(
-                    onPressed:
-                        plan.exportableLines.isEmpty
-                            ? null
-                            : () => _copyDigiKeyCsv(plan),
-                    icon: const Icon(Icons.copy_all_rounded),
-                    label: const Text('Copy DigiKey CSV'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed:
-                        plan.exportableLines.isEmpty
-                            ? null
-                            : () => _copyQuickOrder(plan),
-                    icon: const Icon(Icons.content_copy_rounded),
-                    label: const Text('Copy Quick-Order Text'),
-                  ),
-                  if (nonExportable > 0) ...[
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '$nonExportable line(s) have no DigiKey/MPN identifier and are excluded from export.',
-                        style: TextStyle(color: cs.error, fontSize: 12),
+                  Row(
+                    children: [
+                      Text(
+                        'Purchase Planner ($totalLinesInCart)',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      Chip(
+                        avatar: const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 16,
+                        ),
+                        label: Text(
+                          '${plan.unresolvedCount} unresolved, ${plan.ambiguousCount} ambiguous',
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _clearCart,
+                        icon: const Icon(Icons.clear_all),
+                        label: const Text('Clear Cart'),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton.icon(
+                        onPressed: () => _showAddInventoryLineDialog(inventory),
+                        icon: const Icon(Icons.playlist_add),
+                        label: const Text('Add Inventory Item'),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton.icon(
+                        onPressed: _showAddManualLineDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add Custom Line'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _SummaryChip(
+                        icon: Icons.list_alt_rounded,
+                        label: 'Needed',
+                        value: '${plan.totalRequiredQty}',
+                      ),
+                      _SummaryChip(
+                        icon: Icons.shopping_cart_checkout_rounded,
+                        label: 'To Order',
+                        value: '${plan.totalShortageQty}',
+                      ),
+                      _SummaryChip(
+                        icon: Icons.receipt_long_rounded,
+                        label: 'Orderable Lines',
+                        value:
+                            '${plan.exportableLines.length}/${orderLines.length}',
+                      ),
+                      _SummaryChip(
+                        icon: Icons.monetization_on_outlined,
+                        label: 'Known Cost',
+                        value: '\$${plan.knownOrderCost.toStringAsFixed(2)}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_boardCartQtyById.isNotEmpty)
+                    _buildBoardCartSection(boards),
+                  if (_manualLines.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _buildManualLinesSection(),
                   ],
+                  if (plan.issues.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _buildIssuesSection(plan),
+                  ],
+                  const SizedBox(height: 12),
+                  if (orderLines.isEmpty)
+                    const Text('No shortages detected for current cart.')
+                  else
+                    _buildOrderLinesTable(orderLines),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      FilledButton.icon(
+                        onPressed:
+                            plan.exportableLines.isEmpty
+                                ? null
+                                : () => _copyDigiKeyCsv(plan),
+                        icon: const Icon(Icons.copy_all_rounded),
+                        label: const Text('Copy DigiKey CSV'),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed:
+                            plan.exportableLines.isEmpty
+                                ? null
+                                : () => _copyQuickOrder(plan),
+                        icon: const Icon(Icons.content_copy_rounded),
+                        label: const Text('Copy Quick-Order Text'),
+                      ),
+                      if (nonExportable > 0) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '$nonExportable line(s) have no DigiKey/MPN identifier and are excluded from export.',
+                            style: TextStyle(color: cs.error, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
-            ],
+            ),
           );
         },
       ),
