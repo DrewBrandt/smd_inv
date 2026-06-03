@@ -12,6 +12,11 @@ abstract class FirestoreCollections {
   static const String inventory = 'inventory';
   static const String boards = 'boards';
   static const String history = 'history';
+
+  /// Cache of DigiKey lookups for parts that have no inventory document
+  /// (manual / BOM-fallback lines). Inventory-backed parts store their
+  /// DigiKey data directly on the inventory doc instead.
+  static const String digikeyCache = 'digikey_cache';
 }
 
 /// Common Firestore field names
@@ -30,6 +35,10 @@ abstract class FirestoreFields {
   static const String vendorLink = 'vendor_link';
   static const String datasheet = 'datasheet';
   static const String lastUpdated = 'last_updated';
+
+  // DigiKey enrichment fields (written by the digikeyLookup Cloud Function)
+  static const String digikeyStock = 'digikey_stock';
+  static const String digikeyFetchedAt = 'digikey_fetched_at';
 
   // Board fields
   static const String name = 'name';

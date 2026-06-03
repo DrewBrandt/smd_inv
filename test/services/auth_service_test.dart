@@ -9,6 +9,7 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     this.onSignInWithProvider,
     this.onSignInWithPopup,
     this.onSignInWithRedirect,
+    this.onSignOut,
   });
 
   final Stream<User?> authStateStream;
@@ -210,12 +211,16 @@ void main() {
   });
 
   test('signOut delegates to auth override when available', () async {
-    final auth = _FakeFirebaseAuth();
+    var signOutCallbackFired = false;
+    final auth = _FakeFirebaseAuth(
+      onSignOut: () async => signOutCallbackFired = true,
+    );
     AuthService.authOverride = () => auth;
 
     await AuthService.signOut();
 
     expect(auth.signOutCalls, 1);
+    expect(signOutCallbackFired, isTrue);
   });
 
   test('editor policy summary is stable', () {

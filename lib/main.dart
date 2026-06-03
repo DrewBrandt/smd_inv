@@ -59,7 +59,7 @@ final _router = GoRouter(
     GoRoute(
       path: '/boards',
       name: AppRoute.boards.name,
-      pageBuilder: (c, s) => _page(c, const BoardsPage(), s),
+      pageBuilder: (c, s) => _page(c, const BoardsPage(), s, fullWidth: true),
     ),
     GoRoute(
       path: '/admin',
@@ -85,8 +85,9 @@ final _router = GoRouter(
 CustomTransitionPage _page(
   BuildContext context,
   Widget child,
-  GoRouterState s,
-) {
+  GoRouterState s, {
+  bool fullWidth = false,
+}) {
   return CustomTransitionPage(
     key: s.pageKey,
     child: Scaffold(
@@ -94,16 +95,22 @@ CustomTransitionPage _page(
         preferredSize: Size.fromHeight(88),
         child: TopBar(),
       ),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1600),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: child,
-          ),
-        ),
-      ),
+      body:
+          fullWidth
+              ? child
+              : Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1600),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: child,
+                  ),
+                ),
+              ),
     ),
     transitionsBuilder: (context, animation, secondary, child) {
       return FadeTransition(opacity: animation, child: child);

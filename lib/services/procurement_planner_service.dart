@@ -215,6 +215,7 @@ class ProcurementPlannerService {
               _lowStockThreshold(partType, 1),
           unitPrice: (data[FirestoreFields.pricePerUnit] as num?)?.toDouble(),
           vendorLink: vendorLink,
+          digikeyStock: (data[FirestoreFields.digikeyStock] as num?)?.toInt(),
           boardNames:
               (requiredByDocBoards[entry.key] ?? <String>{}).toList()..sort(),
         ),

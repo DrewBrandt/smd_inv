@@ -111,6 +111,7 @@ class ProcurementLine {
   final int? lowStockThreshold;
   final double? unitPrice;
   final String? vendorLink;
+  final int? digikeyStock;
   final List<String> boardNames;
 
   const ProcurementLine({
@@ -129,10 +130,16 @@ class ProcurementLine {
     this.lowStockThreshold,
     required this.unitPrice,
     required this.vendorLink,
+    this.digikeyStock,
     required this.boardNames,
   }) : purchaseQty = purchaseQty ?? shortageQty;
 
   bool get needsOrder => purchaseQty > 0;
+
+  /// True when DigiKey reports fewer units in stock than we need to order, so
+  /// the user may have to find a replacement part.
+  bool get digikeyOutOfStock =>
+      digikeyStock != null && purchaseQty > 0 && digikeyStock! < purchaseQty;
 
   int get remainingAfterRequired => inStockQty - requiredQty;
 
@@ -165,6 +172,11 @@ class ProcurementLine {
   ProcurementLine copyWith({
     Object? digikeyPartNumber = _unsetProcurementValue,
     int? purchaseQty,
+    Object? unitPrice = _unsetProcurementValue,
+    Object? vendorLink = _unsetProcurementValue,
+    String? description,
+    String? package,
+    Object? digikeyStock = _unsetProcurementValue,
   }) {
     return ProcurementLine(
       source: source,
@@ -176,15 +188,25 @@ class ProcurementLine {
               : digikeyPartNumber as String?,
       partType: partType,
       value: value,
-      package: package,
-      description: description,
+      package: package ?? this.package,
+      description: description ?? this.description,
       requiredQty: requiredQty,
       inStockQty: inStockQty,
       shortageQty: shortageQty,
       purchaseQty: purchaseQty ?? this.purchaseQty,
       lowStockThreshold: lowStockThreshold,
-      unitPrice: unitPrice,
-      vendorLink: vendorLink,
+      unitPrice:
+          identical(unitPrice, _unsetProcurementValue)
+              ? this.unitPrice
+              : unitPrice as double?,
+      vendorLink:
+          identical(vendorLink, _unsetProcurementValue)
+              ? this.vendorLink
+              : vendorLink as String?,
+      digikeyStock:
+          identical(digikeyStock, _unsetProcurementValue)
+              ? this.digikeyStock
+              : digikeyStock as int?,
       boardNames: boardNames,
     );
   }
