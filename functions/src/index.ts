@@ -210,6 +210,7 @@ interface PartRequest {
   dkPn?: string;
   mpn?: string;
   inventoryDocId?: string;
+  forceRefresh?: boolean;
 }
 
 async function resolvePart(
@@ -225,10 +226,11 @@ async function resolvePart(
     ? db.collection("inventory").doc(inventoryDocId as string)
     : db.collection("digikey_cache").doc(key.toUpperCase());
 
-  // 1. Freshness check.
+  // 1. Freshness check (skipped when the caller forces a refresh, e.g. the
+  //    user just set/corrected the part number).
   const snap = await ref.get();
   const existing = snap.exists ? snap.data() : undefined;
-  if (existing) {
+  if (existing && part.forceRefresh !== true) {
     const ts = fromInventory ? existing.digikey_fetched_at : existing.fetched_at;
     const fetchedMs = ts && typeof ts.toMillis === "function" ? ts.toMillis() : 0;
     if (fetchedMs && Date.now() - fetchedMs < maxAgeMs) {

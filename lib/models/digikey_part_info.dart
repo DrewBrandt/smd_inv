@@ -70,11 +70,16 @@ class DigiKeyLookupRequest {
   final String? mpn;
   final String? inventoryDocId;
 
+  /// When true, the function ignores the 24h cache and re-queries DigiKey.
+  /// Used when the user explicitly sets/corrects a part number.
+  final bool forceRefresh;
+
   const DigiKeyLookupRequest({
     required this.key,
     this.dkPn,
     this.mpn,
     this.inventoryDocId,
+    this.forceRefresh = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -83,5 +88,6 @@ class DigiKeyLookupRequest {
     if (mpn != null && mpn!.isNotEmpty) 'mpn': mpn,
     if (inventoryDocId != null && inventoryDocId!.isNotEmpty)
       'inventoryDocId': inventoryDocId,
+    if (forceRefresh) 'forceRefresh': true,
   };
 }

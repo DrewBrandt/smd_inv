@@ -82,6 +82,10 @@ class _BoardsPageState extends State<BoardsPage> {
   /// Identifiers already requested this session (success or failure) so we
   /// don't re-call the function repeatedly as the planner rebuilds.
   final Set<String> _digikeyRequestedKeys = <String>{};
+
+  /// Identifiers to re-query bypassing the 24h cache (e.g. after the user
+  /// sets/corrects a part number). Consumed by the next enrichment pass.
+  final Set<String> _digikeyForceKeys = <String>{};
   bool _digikeyLookupInFlight = false;
 
   String _boardSearchQuery = '';
@@ -1213,6 +1217,8 @@ class _BoardsPageState extends State<BoardsPage> {
               DataColumn(label: Text('Stock')),
               DataColumn(label: Text('DK Stock')),
               DataColumn(label: Text('Buy')),
+              DataColumn(label: Text('Unit \$')),
+              DataColumn(label: Text('Ext. Cost')),
               DataColumn(label: Text('Source')),
               DataColumn(label: Text('Boards')),
             ],
@@ -1268,6 +1274,8 @@ class _BoardsPageState extends State<BoardsPage> {
                           label: Text('${line.purchaseQty}'),
                         ),
                       ),
+                      DataCell(Text(_formatMoney(line.unitPrice))),
+                      DataCell(_buildExtendedCostCell(line)),
                       DataCell(Text(_sourceLabel(line.source))),
                       DataCell(
                         SizedBox(
@@ -1339,6 +1347,24 @@ class _BoardsPageState extends State<BoardsPage> {
     );
   }
 
+  String _formatMoney(double? value) {
+    if (value == null) return '—';
+    return '\$${value.toStringAsFixed(2)}';
+  }
+
+  Widget _buildExtendedCostCell(ProcurementLine line) {
+    final ext = line.shortageExtendedCost;
+    if (ext == null) {
+      return const Text('—');
+    }
+    // Emphasize lines that dominate the order so they're easy to spot.
+    final isHigh = ext >= 25;
+    return Text(
+      _formatMoney(ext),
+      style: TextStyle(fontWeight: isHigh ? FontWeight.w700 : FontWeight.w400),
+    );
+  }
+
   Widget _buildDigiKeyStockCell(ProcurementLine line) {
     final cs = Theme.of(context).colorScheme;
     final stock = line.digikeyStock;
@@ -1407,12 +1433,14 @@ class _BoardsPageState extends State<BoardsPage> {
         dkPn: (dkPn != null && dkPn.isNotEmpty) ? dkPn : null,
         mpn: mpn.isNotEmpty ? mpn : null,
         inventoryDocId: line.inventoryDocId,
+        forceRefresh: _digikeyForceKeys.contains(key),
       );
     }
 
     if (requestsByKey.isEmpty) return;
 
     _digikeyRequestedKeys.addAll(requestsByKey.keys);
+    _digikeyForceKeys.removeAll(requestsByKey.keys);
     final requests = requestsByKey.values.toList(growable: false);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -1681,11 +1709,20 @@ class _BoardsPageState extends State<BoardsPage> {
     controller.dispose();
 
     if (result == null) return;
+    final newPn = result.trim();
+    // The line's lookup key becomes the new PN (or the bare part number when
+    // cleared); force that key to re-query DigiKey, bypassing the 24h cache so
+    // price/stock refresh for the corrected part.
+    final forceKey = newPn.isNotEmpty ? newPn : line.partNumber.trim();
     setState(() {
-      _digikeyPnOverrides[_plannerLineKey(line)] = result.trim();
+      _digikeyPnOverrides[_plannerLineKey(line)] = newPn;
+      if (forceKey.isNotEmpty) {
+        _digikeyRequestedKeys.remove(forceKey);
+        _digikeyForceKeys.add(forceKey);
+      }
     });
     unawaited(_saveCartState());
-    unawaited(_saveDigiKeyPartNumberOverride(line, result.trim()));
+    unawaited(_saveDigiKeyPartNumberOverride(line, newPn));
   }
 
   Future<void> _saveDigiKeyPartNumberOverride(
